@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Improved iPhone Duo navigation and layouts, with Stats cards arranged on each side of the fold.
+- Improved iPhone Duo navigation and layouts, with a wider sidebar and Stats cards arranged on each side of the fold.
 - Updated iOS sheets with native dismiss and confirmation controls.
 - Simplified workspace selection and server environment filters on iOS.
 - Grouped iOS file actions in the More menu.
