@@ -20,6 +20,9 @@ final class TerminalInputAccessoryView: UIInputView {
     private let onCustomAction: (TerminalAccessoryCustomAction) -> Void
     private let onDismissKeyboard: () -> Void
     private var inputSnapshot: TerminalAccessoryInputSnapshot
+    #if DEBUG
+    private(set) var voiceButtonHideCount = 0
+    #endif
     var onVoice: (() -> Void)? {
         didSet {
             updateLeadingButtonsState()
@@ -674,6 +677,11 @@ final class TerminalInputAccessoryView: UIInputView {
 
     private func updateLeadingButtonsState() {
         let voiceEnabled = onVoice != nil
+        #if DEBUG
+        if !voiceEnabled, voiceButton?.isHidden == false, voiceButtonHideCount < Int.max {
+            voiceButtonHideCount += 1
+        }
+        #endif
         let dismissEnabled = inputSnapshot.showsDismissKeyboardButton
         let attachmentEnabled = inputSnapshot.showsAttachmentButton && onAttachment != nil
         if !attachmentEnabled { attachmentMenu.dismiss() }

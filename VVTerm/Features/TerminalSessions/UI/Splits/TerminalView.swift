@@ -1054,7 +1054,10 @@ struct TerminalPaneView: View {
             onProcessExit: onProcessExit,
             onReady: { isReady = true },
             onOpenLink: linkCoordinator.request,
-            showsVoiceAccessoryButton: showsVoiceButton,
+            showsVoiceAccessoryButton: TerminalVoiceButtonVisibilityPolicy.isAccessoryVisible(
+                settingEnabled: composerVoice != nil,
+                recording: composerVoice?.phase.isActive == true
+            ),
             onVoiceTrigger: voiceTriggerHandlerForTerminal,
             onSceneActivation: reconcileAutomaticReconnect,
             acceptsInput: connectionState.isConnected,

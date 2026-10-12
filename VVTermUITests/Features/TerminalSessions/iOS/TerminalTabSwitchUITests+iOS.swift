@@ -33,6 +33,34 @@ final class TerminalTabSwitchUITests: TerminalReconnectUITestCase {
     }
 
     @MainActor
+    func testTabSwitchKeepsMicrophoneWithoutTransientHiding() throws {
+        let (app, diagnostics) = launchProductionSSHTestHarness(tabSwitching: true)
+        defer { app.terminate() }
+        let tabs = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "vvterm.terminal.tab."
+        ))
+        let voice = app.buttons["vvterm.keyboard.accessory.voice"]
+        XCTAssertEqual(tabs.count, 2)
+        for index in [1, 0] {
+            tabs.element(boundBy: index).tap()
+            wait(for: diagnostics, containing: "state=connected", timeout: 20, app: app)
+            XCTAssertTrue(voice.waitForExistence(timeout: 8))
+            XCTAssertEqual(diagnosticIntegerValue("voiceHides", in: diagnostics), 0)
+        }
+        let frame = voice.frame
+        let hides = try XCTUnwrap(diagnosticIntegerValue("keyboardHides", in: diagnostics))
+        for index in [1, 0, 1, 0] {
+            tabs.element(boundBy: index).tap()
+            XCTAssertTrue(tabs.element(boundBy: index).isSelected)
+            XCTAssertTrue(voice.exists && voice.isHittable)
+            XCTAssertEqual(voice.frame.minX, frame.minX, accuracy: 1)
+            XCTAssertEqual(diagnosticIntegerValue("voiceHides", in: diagnostics), 0,
+                           "A delayed snapshot must still detect a microphone hidden during transfer.")
+            XCTAssertEqual(diagnosticIntegerValue("keyboardHides", in: diagnostics), hides)
+        }
+    }
+
+    @MainActor
     func testNormalTabSwitchKeepsTerminalAboveKeyboard() throws {
         let (app, diagnostics) = launchProductionSSHTestHarness(tabSwitching: true)
         defer { app.terminate() }

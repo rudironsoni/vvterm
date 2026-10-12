@@ -3,6 +3,22 @@ import Testing
 
 struct TerminalVoiceButtonVisibilityPolicyTests {
     @Test
+    func accessoryAvailabilityDoesNotDependOnTheSelectedPane() {
+        #expect(TerminalVoiceButtonVisibilityPolicy.isAccessoryVisible(
+            settingEnabled: true, recording: false
+        ))
+        #expect(!TerminalVoiceButtonVisibilityPolicy.isAccessoryVisible(
+            settingEnabled: false, recording: false
+        ))
+        #expect(!TerminalVoiceButtonVisibilityPolicy.isAccessoryVisible(
+            settingEnabled: true, recording: true
+        ))
+        // Floating controls still belong only to the selected, focused pane.
+        #expect(!TerminalVoiceButtonVisibilityPolicy.isVisible(
+            settingEnabled: true, tabSelected: false, paneFocused: true, recording: false
+        ))
+    }
+    @Test
     func focusedSelectedPaneShowsEnabledVoiceButton() {
         #expect(
             TerminalVoiceButtonVisibilityPolicy.isVisible(

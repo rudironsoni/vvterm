@@ -5,6 +5,12 @@ nonisolated enum TerminalVoiceButtonVisibilityPolicy {
         paneFocused: Bool,
         recording: Bool
     ) -> Bool {
-        settingEnabled && tabSelected && paneFocused && !recording
+        isAccessoryVisible(settingEnabled: settingEnabled, recording: recording)
+            && tabSelected && paneFocused
+    }
+
+    static func isAccessoryVisible(settingEnabled: Bool, recording: Bool) -> Bool {
+        // Availability stays stable while UIKit transfers the active accessory.
+        settingEnabled && !recording
     }
 }

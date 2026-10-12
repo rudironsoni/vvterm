@@ -78,6 +78,7 @@ extension GhosttyTerminalView {
             "surfaceFocused=\(keyboardUITestSurfaceFocused)",
             "sizePreserved=\(keyboardAvoidancePreservesTerminalSize)",
             "accessoryAttached=\(accessoryAttached)",
+            "voiceHides=\(keyboardToolbar?.voiceButtonHideCount ?? 0)",
             "accessoryAppearance=\(accessoryAppearance)",
             "accessoryOwnerStyle=\(accessoryOwnerStyle)",
             "accessoryHostStyle=\(accessoryHostStyle)",
