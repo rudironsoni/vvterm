@@ -124,13 +124,21 @@ struct TerminalKeyboardNativeDismissalTests {
         #expect(!coordinator.isUserHidden)
     }
 
-    @Test
-    func nativeDismissalStillWorksWithPreviouslyAttachedHardwareKeyboard() async {
-        let (coordinator, _) = await makeVisibleSession(hardwareAttached: true)
+    @Test(arguments: [true, false])
+    func nativeHideAfterHardwareUseRespectsCurrentAttachment(hardwareRemainsAttached: Bool) async {
+        let (coordinator, session) = await makeVisibleSession(hardwareAttached: true)
+        if !hardwareRemainsAttached {
+            session.snapshot.hasHardwareKeyboardAttached = false
+            coordinator.hardwareKeyboardAttachmentDidChange(for: Self.paneId)
+            // A visible native frame establishes dismissal history after disconnection.
+            coordinator.keyboardUITestReceiveKeyboardEndFrame(Self.dockedFrame, isLocal: true)
+        }
         coordinator.keyboardUITestReceiveSoftwareKeyboardHidden()
         try? await Task.sleep(nanoseconds: 1_100_000_000)
         await drainMainQueue()
-        #expect(coordinator.isUserHidden)
+        #expect(coordinator.isUserHidden == !hardwareRemainsAttached)
+        #expect(session.snapshot.isKeyboardInBrowseMode == !hardwareRemainsAttached)
+        #expect(session.forceSoftwareKeyboardCount == 0)
     }
 
     @Test
