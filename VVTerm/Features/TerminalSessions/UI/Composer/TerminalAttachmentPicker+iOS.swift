@@ -6,43 +6,39 @@ import UniformTypeIdentifiers
 struct TerminalAttachmentPicker: View {
     @ObservedObject var composer: TerminalComposerStore
     let onPasteText: (String) -> Void
-    var onDismiss: () -> Void = {}
-    @State private var photos: [PhotosPickerItem] = []
 
     var body: some View {
         Color.clear
-            .fullScreenCover(isPresented: isPresented(.camera), onDismiss: onDismiss) {
+            .fullScreenCover(isPresented: isPresented(.camera), onDismiss: composer.attachmentPickerDidDismiss) {
                 TerminalCameraCapture { result in
                     composer.attachmentSource = nil
                     if let result { composer.load { [try result.get()] } }
                 }
             }
-            .photosPicker(isPresented: isPresented(.photos), selection: $photos,
-                          maxSelectionCount: TerminalAttachmentLimits.maximumCount,
-                          selectionBehavior: .ordered, matching: .any(of: [.images, .videos]),
-                          preferredItemEncoding: .current)
-            .fileImporter(isPresented: isPresented(.files), allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-                if case .failure(let error) = result, (error as? CocoaError)?.code == .userCancelled { return }
-                composer.load { try await TerminalAttachmentLoader.files(result.get()) }
-            }
-            .onChange(of: photos) { selection in
-                guard !selection.isEmpty else { return }
-                photos = []
-                composer.load {
-                    var payloads: [TerminalAttachmentPayload] = []
-                    for item in selection {
-                        try Task.checkCancellation()
-                        guard let attachment = try await item.loadTransferable(type: TerminalPhotoLibraryAttachment.self) else {
-                            throw TerminalAttachmentError.unreadable
+            .sheet(isPresented: libraryOrFilesPresented, onDismiss: composer.attachmentPickerDidDismiss) {
+                switch composer.attachmentSource ?? composer.presentedAttachmentSource {
+                case .photos:
+                    TerminalPhotoLibraryPicker { providers in
+                        composer.attachmentSource = nil
+                        guard !providers.isEmpty else { return }
+                        composer.load { @MainActor in
+                            try await TerminalPhotoLibraryAttachment.payloads(from: providers)
                         }
-                        payloads.append(attachment.payload)
-                        try TerminalAttachmentLimits.validate(payloads)
                     }
-                    return payloads
+                    .ignoresSafeArea()
+                case .files:
+                    TerminalFilePicker { urls in
+                        composer.attachmentSource = nil
+                        guard let urls else { return }
+                        composer.load { try await TerminalAttachmentLoader.files(urls) }
+                    }
+                    .ignoresSafeArea()
+                default:
+                    EmptyView()
                 }
             }
             .onChange(of: composer.attachmentSource) { source in
-                if source == nil { onDismiss(); return }
+                composer.attachmentPickerWillPresent()
                 guard source == .paste else { return }
                 composer.attachmentSource = nil
                 let images = Clipboard.attachmentPayloads()
@@ -57,6 +53,17 @@ struct TerminalAttachmentPicker: View {
                     return images + files
                 }
             }
+            .preference(key: TerminalRouteModalPresentationPreferenceKey.self,
+                        value: composer.isAttachmentPickerPresented)
+    }
+
+    private var libraryOrFilesPresented: Binding<Bool> {
+        Binding(get: { composer.attachmentSource == .photos || composer.attachmentSource == .files },
+                set: { presented in
+            if !presented, composer.attachmentSource == .photos || composer.attachmentSource == .files {
+                composer.attachmentSource = nil
+            }
+        })
     }
 
     private func isPresented(_ source: TerminalComposerStore.AttachmentSource) -> Binding<Bool> {

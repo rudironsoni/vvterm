@@ -8,6 +8,54 @@ final class ServerNavigationUITests: XCTestCase {
     }
 
     @MainActor
+    func testNativeAttachmentPickersRestoreTerminalKeyboardAfterDismissal() throws {
+        try assertNativeAttachmentPickerReturn(inputMode: "direct")
+    }
+
+    @MainActor
+    func testNativeAttachmentPickersRestoreChatKeyboardAndDraftAfterDismissal() throws {
+        try assertNativeAttachmentPickerReturn(inputMode: "chat")
+    }
+
+    @MainActor
+    private func assertNativeAttachmentPickerReturn(inputMode: String) throws {
+        let app = launchNavigationHarness(freshConnection: true, inputMode: inputMode)
+        defer { app.terminate() }
+        let diagnostics = app.staticTexts["vvterm.reconnectTest.diagnostics"]
+        wait(for: diagnostics, containing: "setup=ready pane=missing", app: app)
+        let row = app.descendants(matching: .any)
+            .matching(identifier: "vvterm.serverList.server.D3A03FD5-453E-43AC-8BB5-838E5D5D1990").firstMatch
+        let list = app.descendants(matching: .any).matching(identifier: "vvterm.serverList.list").firstMatch
+        scrollToVisible(row, in: list, app: app)
+        tapVisible(row)
+        wait(for: diagnostics, containing: "state=connected", timeout: 45, app: app)
+        let editor = app.descendants(matching: .any).matching(identifier: "vvterm.composer.text").firstMatch
+        if inputMode == "chat" {
+            wait(for: diagnostics, containing: "keyboardVisible=true", app: app)
+            XCTAssertTrue(editor.waitForExistence(timeout: 8))
+            app.keys["a"].tap()
+            app.keys["b"].tap()
+            XCTAssertEqual(editor.value as? String, "ab")
+        }
+        for source in ["photos", "camera", "files", "photos"] {
+            wait(for: diagnostics, containing: "keyboardVisible=true", app: app)
+            app.buttons[inputMode == "chat" ? "vvterm.composer.attach" : "vvterm.keyboard.accessory.attachments"].tap()
+            app.buttons["vvterm.attachments.\(source)"].tap()
+            let cancel = app.buttons.matching(NSPredicate(
+                format: "label == 'Cancel' OR identifier == 'DismissImagePickerButton'")).firstMatch
+            XCTAssertTrue(cancel.waitForExistence(timeout: 15), app.debugDescription)
+            cancel.tap()
+            wait(for: diagnostics, containing: "keyboardVisible=true", app: app)
+            // The coordinator checks native dismissal one second after a hide.
+            RunLoop.current.run(until: Date().addingTimeInterval(2))
+            XCTAssertTrue(app.keyboards.firstMatch.exists, diagnostics.label)
+            XCTAssertTrue(diagnostics.label.contains("keyboardVisible=true"), diagnostics.label)
+            XCTAssertTrue(app.keys["a"].isHittable, diagnostics.label)
+            if inputMode == "chat" { XCTAssertEqual(editor.value as? String, "ab") }
+        }
+    }
+
+    @MainActor
     func testFreshConnectionKeepsToolbarPositionAndFullScreenBackground() throws {
         let app = launchNavigationHarness(freshConnection: true)
         defer { app.terminate() }
@@ -283,7 +331,8 @@ final class ServerNavigationUITests: XCTestCase {
     @MainActor
     private func launchNavigationHarness(
         privacyModeEnabled: Bool = false,
-        freshConnection: Bool = false
+        freshConnection: Bool = false,
+        inputMode: String = "direct"
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.terminate()
@@ -297,7 +346,7 @@ final class ServerNavigationUITests: XCTestCase {
             "-iCloudSyncEnabled", "NO",
             "-sshAutoReconnect", "YES",
             "-terminalTmuxEnabledDefault", "NO",
-            "-terminalInputMode", "direct",
+            "-terminalInputMode", inputMode,
             "-security.privacyModeEnabled", privacyModeEnabled ? "YES" : "NO",
             "-security.fullAppLockEnabled", "NO",
             "-security.lockOnBackground", "NO",

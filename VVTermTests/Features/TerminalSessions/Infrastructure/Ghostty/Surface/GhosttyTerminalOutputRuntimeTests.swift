@@ -6,6 +6,22 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct GhosttyTerminalOutputRuntimeTests {
+    #if os(iOS)
+    @Test
+    func pausedTerminalStillAcceptsOutputAndResumesDrawing() async throws {
+        let app = GhosttyRuntime()
+        defer { app.cleanup() }
+        let terminal = makeTerminal(app: app, appHandle: try #require(app.app))
+        defer { terminal.cleanup() }
+        terminal.pauseRendering()
+
+        #expect(await terminal.receiveTerminalOutput(Data("output while Photos is open\r\n".utf8)))
+        #expect(terminal.isRenderingPaused)
+        terminal.resumeRendering()
+        #expect(!terminal.isRenderingPaused)
+    }
+    #endif
+
     @Test
     func largeTerminalResponseBurstCompletesWithoutBlockingMainActor() async throws {
         let app = GhosttyRuntime()

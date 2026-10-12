@@ -127,7 +127,7 @@ struct TerminalComposerView: View {
     private var editor: some View {
         TerminalComposerEditor(
             text: $composer.draft,
-            isActive: isActive && composer.attachmentSource == nil,
+            isActive: isActive && !composer.isAttachmentPickerPresented,
             keyboard: keyboard, paneID: paneID,
             acceptsEdits: voiceInteraction == .text && !isRecording,
             placeholder: voiceInteraction == .ready ? String(localized: "Touch and hold to record") : String(localized: "Type anything"),

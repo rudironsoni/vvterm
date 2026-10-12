@@ -155,7 +155,7 @@ final class TerminalKeyboardCoordinator: ObservableObject {
     private enum PresentationRequest: Equatable {
         case none
         case automaticRefresh
-        case contentProtectionRecovery
+        case deactivationRecovery
         case forceSoftwareKeyboard(repairActiveSession: Bool)
 
         var isExplicitSoftwareKeyboardRequest: Bool {
@@ -167,7 +167,7 @@ final class TerminalKeyboardCoordinator: ObservableObject {
 
         var waitsForWindowOwnership: Bool {
             switch self {
-            case .contentProtectionRecovery, .forceSoftwareKeyboard:
+            case .deactivationRecovery, .forceSoftwareKeyboard:
                 return true
             case .none, .automaticRefresh:
                 return false
@@ -175,7 +175,7 @@ final class TerminalKeyboardCoordinator: ObservableObject {
         }
     }
 
-    private enum ContentProtectionRecoveryState: Equatable {
+    private enum InputDeactivationRecoveryState: Equatable {
         case idle
         case pending(paneId: UUID)
         case recovering(paneId: UUID)
@@ -269,7 +269,7 @@ final class TerminalKeyboardCoordinator: ObservableObject {
     private var syncScheduler = TerminalKeyboardSyncScheduler()
     private var lastManagedPaneId: UUID?
     private var pendingPresentationRequest = PresentationRequest.none
-    private var contentProtectionRecoveryState = ContentProtectionRecoveryState.idle
+    private var inputDeactivationRecoveryState = InputDeactivationRecoveryState.idle
     private var explicitPresentationRecovery: ExplicitPresentationRecovery?
     private var presentationVerifyTask: Task<Void, Never>?
     @Published private(set) var activeTerminalSceneIsForeground = true
@@ -546,10 +546,10 @@ final class TerminalKeyboardCoordinator: ObservableObject {
         if explicitPresentationRecovery?.paneId == paneId {
             explicitPresentationRecovery = nil
         }
-        switch contentProtectionRecoveryState {
+        switch inputDeactivationRecoveryState {
         case .pending(let recoveryPaneId), .recovering(let recoveryPaneId):
             if recoveryPaneId == paneId {
-                contentProtectionRecoveryState = .idle
+                inputDeactivationRecoveryState = .idle
             }
         case .idle:
             break
@@ -605,21 +605,21 @@ final class TerminalKeyboardCoordinator: ObservableObject {
         markDirty(reason: "sceneActivated")
     }
 
-    /// Content protection can finish after the scene and window activation
+    /// Content protection and route sheets can finish after scene and window activation
     /// notifications have already been delivered. Replay scene recovery and
     /// require one responder-free turn so stale InputUI ownership cannot make
     /// repeated `becomeFirstResponder()` calls fail without rebuilding.
     func activeTerminalContentDidBecomeVisible(for paneId: UUID) {
-        guard contentProtectionRecoveryState.isPending(for: paneId),
+        guard inputDeactivationRecoveryState.isPending(for: paneId),
               activePaneId == paneId,
               let terminal = activeTerminal else {
             return
         }
-        contentProtectionRecoveryState = .recovering(paneId: paneId)
+        inputDeactivationRecoveryState = .recovering(paneId: paneId)
         let snapshot = terminal.keyboardCoordinatorDiagnosticSnapshot()
         if Self.desiredKeyboardVisible(inputs: currentInputs),
            !snapshot.isSoftwareKeyboardSuppressed {
-            // Content protection suppresses the accessory before releasing
+            // Deactivation suppresses the accessory before releasing
             // InputUI. Clear only that temporary suppression; an ordinary
             // scene activation must preserve its existing presentation state.
             terminal.setTerminalInputAccessorySuppressed(false)
@@ -630,19 +630,19 @@ final class TerminalKeyboardCoordinator: ObservableObject {
             if pendingPresentationRequest == .automaticRefresh {
                 pendingPresentationRequest = .none
             }
-            markDirty(reason: "contentProtectionEndedWithSoftwareKeyboardSuppressed")
+            markDirty(reason: "inputPresentationAvailableWithSoftwareKeyboardSuppressed")
             return
         }
         cancelPresentationVerify()
         presentationRefreshAttemptCount = 0
-        pendingPresentationRequest = .contentProtectionRecovery
-        markDirty(reason: "contentProtectionEnded")
+        pendingPresentationRequest = .deactivationRecovery
+        markDirty(reason: "inputPresentationAvailable")
     }
 
     func activeTerminalSceneWillDeactivate(for paneId: UUID) {
         guard activePaneId == paneId else { return }
-        if contentProtectionRecoveryState == .recovering(paneId: paneId) {
-            contentProtectionRecoveryState = .pending(paneId: paneId)
+        if inputDeactivationRecoveryState == .recovering(paneId: paneId) {
+            inputDeactivationRecoveryState = .pending(paneId: paneId)
         }
         guard activeTerminalSceneIsForeground else { return }
         activeTerminalSceneIsForeground = false
@@ -779,9 +779,8 @@ final class TerminalKeyboardCoordinator: ObservableObject {
     func deactivateInputImmediately(
         reason: ImmediateDeactivationReason = .contentProtection
     ) {
-        if case .contentProtection = reason,
-           let paneId = activePaneId ?? lastManagedPaneId {
-            contentProtectionRecoveryState = .pending(paneId: paneId)
+        if let paneId = activePaneId ?? lastManagedPaneId {
+            inputDeactivationRecoveryState = .pending(paneId: paneId)
         }
         releaseComposerInputs()
         // Capture both identities before clearing route ownership. A native
@@ -815,7 +814,7 @@ final class TerminalKeyboardCoordinator: ObservableObject {
     func relinquishRouteOwnershipForNavigation() {
         for input in composerInputs.values { input.session?.preventComposerInputAcquisition() }
         pendingPresentationRequest = .none
-        contentProtectionRecoveryState = .idle
+        inputDeactivationRecoveryState = .idle
         explicitPresentationRecovery = nil
         activePaneId = nil
         viewActive = false
@@ -827,8 +826,8 @@ final class TerminalKeyboardCoordinator: ObservableObject {
         syncScheduler.cancel(reason: "routeNavigation")
     }
 
-    func contentProtectionRecoveryIsPending(for paneId: UUID) -> Bool {
-        contentProtectionRecoveryState.isPending(for: paneId)
+    func inputDeactivationRecoveryIsPending(for paneId: UUID) -> Bool {
+        inputDeactivationRecoveryState.isPending(for: paneId)
     }
 
     func userRequestedHide() {
@@ -1330,7 +1329,7 @@ final class TerminalKeyboardCoordinator: ObservableObject {
         }
 
         if keyboardPresentationDesired,
-           presentationRequest == .contentProtectionRecovery,
+           presentationRequest == .deactivationRecovery,
            !before.isSoftwareKeyboardSuppressed {
             beginInputSessionReacquisition(
                 for: activePaneId,
@@ -1641,7 +1640,7 @@ final class TerminalKeyboardCoordinator: ObservableObject {
         switch presentationRequest {
         case .forceSoftwareKeyboard:
             _ = terminal.forceSoftwareKeyboardInput()
-        case .none, .automaticRefresh, .contentProtectionRecovery:
+        case .none, .automaticRefresh, .deactivationRecovery:
             _ = terminal.acquireTerminalInput()
         }
 

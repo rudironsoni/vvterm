@@ -5,6 +5,35 @@ import XCTest
 @testable import VVTerm
 
 final class TerminalPhotoLibraryAttachmentTests: XCTestCase {
+    @MainActor
+    func testNativePickerProvidersKeepSelectionOrderAndRejectTooManyItems() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var providers: [NSItemProvider] = []
+        for (name, type) in [("first.mp4", UTType.mpeg4Movie), ("second.png", .png)] {
+            let url = directory.appendingPathComponent(name)
+            try Data([1, 2, 3]).write(to: url)
+            let provider = NSItemProvider()
+            provider.registerFileRepresentation(forTypeIdentifier: type.identifier, fileOptions: [], visibility: .all) { completion in
+                completion(url, false, nil)
+                return nil
+            }
+            providers.append(provider)
+        }
+        let payloads = try await TerminalPhotoLibraryAttachment.payloads(from: providers)
+        XCTAssertEqual(payloads.map(\.suggestedFilename), ["first.mp4", "second.png"])
+        do {
+            _ = try await TerminalPhotoLibraryAttachment.payloads(
+                from: Array(repeating: providers[0], count: TerminalAttachmentLimits.maximumCount + 1))
+            XCTFail("Too many providers must be rejected before loading.")
+        } catch {
+            guard case TerminalAttachmentError.limitExceeded = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
     func testImportsPhotosAndVideosWithTheirBytesAndFileType() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

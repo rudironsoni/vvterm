@@ -576,7 +576,7 @@ struct ServerTerminalRoute: View {
                 isFocusedTerminalFindNavigatorVisible,
                 for: activePaneId
             )
-            if keyboardCoordinator.contentProtectionRecoveryIsPending(for: activePaneId),
+            if keyboardCoordinator.inputDeactivationRecoveryIsPending(for: activePaneId),
                let terminal = focusedTerminal {
                 terminal.resumeRendering()
                 keyboardCoordinator.activeTerminalContentDidBecomeVisible(for: activePaneId)

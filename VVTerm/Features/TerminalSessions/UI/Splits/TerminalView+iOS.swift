@@ -66,7 +66,7 @@ struct RemoteTerminalPaneWrapper: View {
                     credentials: credentials,
                     tabManager: tabManager,
                     size: geometry.size,
-                    isActive: isActive,
+                    isActive: isActive && !composer.isAttachmentPickerPresented,
                     terminalContextMenuActions: terminalContextMenuActions,
                     onPaneKeyboardShortcut: onPaneKeyboardShortcut,
                     onProcessExit: onProcessExit,
@@ -110,10 +110,7 @@ struct RemoteTerminalPaneWrapper: View {
                 } else {
                     tabManager.terminalSurfaceStore.ghosttySurface(for: paneId)?.pasteTextFromClipboard()
                 }
-            }) {
-                guard tabManager.keyboardCoordinator.canSubmitComposedInput(for: paneId) else { return }
-                tabManager.keyboardCoordinator.userRequestedShow()
-            }
+            })
         }
         .onChange(of: isActive) { active in
             if !active { composer.attachmentSource = nil }
@@ -129,7 +126,7 @@ struct RemoteTerminalPaneWrapper: View {
               terminalScene === activatedScene else { return }
 
         if TerminalRenderingPolicy.transition(
-            terminalIsActive: isActive,
+            terminalIsActive: isActive && !composer.isAttachmentPickerPresented,
             sceneIsActive: terminalScene.activationState == .foregroundActive,
             renderingIsPaused: terminal.isRenderingPaused
         ) == .resume {

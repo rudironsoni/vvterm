@@ -11,6 +11,32 @@ extension TerminalKeyboardCoordinatorTests {
     struct Repair {
         @Test
         @MainActor
+        func routeModalReturnRestoresTypingWithOneInputSessionReset() async {
+            let paneId = UUID()
+            let session = TerminalKeyboardInputSessionSpy()
+            let coordinator = makeTerminalKeyboardCoordinator()
+            coordinator.terminalProvider = { $0 == paneId ? session : nil }
+            coordinator.setActivePane(paneId)
+            coordinator.setViewActive(true)
+            coordinator.setPaneInputEligible(true, for: paneId)
+            coordinator.setWindowAttached(true, for: paneId)
+            await drainMainQueue()
+            coordinator.deactivateInputImmediately(reason: .routeModal)
+            #expect(coordinator.inputDeactivationRecoveryIsPending(for: paneId))
+            session.resetCommands()
+            coordinator.setActivePane(paneId)
+            coordinator.setViewActive(true)
+            coordinator.activeTerminalContentDidBecomeVisible(for: paneId)
+            await drainMainQueue()
+            #expect(session.rebuildCount == 1)
+            #expect(!coordinator.isUserHidden)
+            coordinator.activeTerminalContentDidBecomeVisible(for: paneId)
+            await drainMainQueue()
+            #expect(session.rebuildCount == 1)
+        }
+
+        @Test
+        @MainActor
         func routeModalReleasesInputBeforeFirstScheduledSync() async {
             let paneId = UUID()
             let session = TerminalKeyboardInputSessionSpy()
@@ -412,6 +438,7 @@ extension TerminalKeyboardCoordinatorTests {
     
             coordinator.setActivePane(paneId)
             coordinator.setViewActive(true)
+            coordinator.activeTerminalContentDidBecomeVisible(for: paneId)
             await drainMainQueue()
     
             #expect(coordinator.isUserHidden)

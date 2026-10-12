@@ -11,7 +11,16 @@ final class TerminalComposerStore: ObservableObject {
         case failed(String)
     }
 
-    enum AttachmentSource: CaseIterable { case camera, photos, files, paste }
+    enum AttachmentSource: CaseIterable {
+        case camera, photos, files, paste
+
+        var presentsPicker: Bool {
+            switch self {
+            case .camera, .photos, .files: true
+            case .paste: false
+            }
+        }
+    }
 
     @Published private(set) var mode = TerminalInputMode.direct
     @Published var draft = ""
@@ -19,6 +28,8 @@ final class TerminalComposerStore: ObservableObject {
     @Published private(set) var operation = Operation.idle
     @Published private(set) var cleanupError: String?
     @Published var attachmentSource: AttachmentSource?
+    // The native sheet can remain on screen after its dismissal was requested.
+    @Published private(set) var presentedAttachmentSource: AttachmentSource?
 
     private let resolveRoute: @MainActor () async throws -> TerminalAttachmentRoute
     private let submit: @MainActor (String, TerminalComposerSendAction) throws -> Void
@@ -47,6 +58,18 @@ final class TerminalComposerStore: ObservableObject {
     }
 
     var canSend: Bool { !isBusy && (mode == .chat || !attachments.isEmpty) }
+    var isAttachmentPickerPresented: Bool {
+        attachmentSource?.presentsPicker == true || presentedAttachmentSource != nil
+    }
+
+    func attachmentPickerWillPresent() {
+        guard let source = attachmentSource, source.presentsPicker else { return }
+        presentedAttachmentSource = source
+    }
+
+    func attachmentPickerDidDismiss() {
+        presentedAttachmentSource = nil
+    }
 
     func isUploading(_ attachment: TerminalAttachmentPayload) -> Bool {
         if case .uploading(let id, _) = operation { return id == attachment.id }

@@ -26,10 +26,9 @@ extension View {
             )
             .frame(width: 0, height: 0)
         }
-        .preference(
-            key: TerminalRouteModalPresentationPreferenceKey.self,
-            value: isPresented.wrappedValue
-        )
+        .transformPreference(TerminalRouteModalPresentationPreferenceKey.self) {
+            $0 = $0 || isPresented.wrappedValue
+        }
     }
 }
 

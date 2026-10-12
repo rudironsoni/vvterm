@@ -130,22 +130,91 @@ final class TerminalComposerUITests: XCTestCase {
 
     @MainActor
     func testAttachmentMenuPastesTextIntoChatAndNormalInput() {
-        let app = launch(arguments: ["--composer-clipboard-text"])
-        app.buttons["vvterm.composer.toggle"].tap()
-        let editor = app.textViews["vvterm.composer.text"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        editor.typeText("draft ")
-        app.buttons["vvterm.composer.attach"].tap()
-        app.buttons["vvterm.attachments.paste"].tap()
-        expectation(for: NSPredicate(format: "value == %@", "draft clipboard text"), evaluatedWith: editor)
-        waitForExpectations(timeout: 5)
-        XCTAssertEqual(app.staticTexts["composer.test.bytes"].label, "")
-        XCTAssertFalse(app.staticTexts["vvterm.composer.error"].exists)
-        app.buttons["vvterm.composer.toggle"].tap()
+        for chat in [true, false] {
+            let app = launch(arguments: ["--composer-clipboard-text", "--composer-keyboard-diagnostics",
+                                         "-terminalInputMode", chat ? "chat" : "direct"])
+            defer { app.terminate() }
+            let diagnostics = app.staticTexts["composer.test.keyboard"]
+            let editor = app.descendants(matching: .any).matching(identifier: "vvterm.composer.text").firstMatch
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+            if chat {
+                XCTAssertTrue(editor.waitForExistence(timeout: 5), app.debugDescription)
+                for character in "draft " {
+                    app.keys[character == " " ? "space" : String(character)].tap()
+                }
+            }
+            let rebuilds = diagnosticToken("inputRebuilds", in: diagnostics)
+            XCTAssertNotNil(rebuilds)
+            let attach = app.buttons[chat ? "vvterm.composer.attach" : "vvterm.keyboard.accessory.attachments"]
+            XCTAssertTrue(attach.waitForExistence(timeout: 5))
+            attach.tap()
+            app.buttons["vvterm.attachments.paste"].tap()
+            if chat {
+                expectation(for: NSPredicate(format: "value == %@", "draft clipboard text"), evaluatedWith: editor)
+                waitForExpectations(timeout: 5)
+                XCTAssertEqual(app.staticTexts["composer.test.bytes"].label, "")
+            } else {
+                expectation(for: NSPredicate(format: "label == %@", "clipboard text"), evaluatedWith: app.staticTexts["composer.test.bytes"])
+                waitForExpectations(timeout: 5)
+            }
+            XCTAssertFalse(app.staticTexts["vvterm.composer.error"].exists)
+            XCTAssertTrue(app.keyboards.firstMatch.exists)
+            XCTAssertEqual(diagnosticToken("inputRebuilds", in: diagnostics), rebuilds)
+        }
+    }
+
+    @MainActor
+    func testPhotosPickerOpensDuringOutputAndReturnsTerminalInput() {
+        let app = launch(arguments: ["--composer-stream-output", "--composer-keyboard-diagnostics"])
+        let diagnostics = app.staticTexts["composer.test.keyboard"]
+        XCTAssertTrue(app.buttons["vvterm.keyboard.accessory.attachments"].waitForExistence(timeout: 8))
         app.buttons["vvterm.keyboard.accessory.attachments"].tap()
-        app.buttons["vvterm.attachments.paste"].tap()
-        expectation(for: NSPredicate(format: "label == %@", "clipboard text"), evaluatedWith: app.staticTexts["composer.test.bytes"])
+        app.buttons["vvterm.attachments.photos"].tap()
+        let photos = app.navigationBars["Photos"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.scrollViews["photosView_content_scroll_view"].exists, app.debugDescription)
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "renderingPaused=true"), evaluatedWith: diagnostics)
         waitForExpectations(timeout: 5)
+        XCTAssertFalse(app.staticTexts["Loading…"].exists)
+        let cancel = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancel.exists, app.debugDescription)
+        cancel.tap()
+        expectation(for: NSPredicate(format: "label CONTAINS %@", "renderingPaused=false"), evaluatedWith: diagnostics)
+        waitForExpectations(timeout: 8)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        app.keys["a"].tap()
+        expectation(for: NSPredicate(format: "label == %@", "a"), evaluatedWith: app.staticTexts["composer.test.bytes"])
+        waitForExpectations(timeout: 5)
+    }
+
+    @MainActor
+    private func diagnosticToken(_ key: String, in element: XCUIElement) -> String? {
+        element.label.split(separator: " ").first(where: { $0.hasPrefix("\(key)=") })
+            .map { String($0.dropFirst(key.count + 1)) }
+    }
+
+    @MainActor
+    func testPhotoSelectionKeepsChatDraftAndRestoresKeyboard() throws {
+        let app = launch(arguments: ["--composer-keyboard-diagnostics", "-terminalInputMode", "chat"])
+        defer { app.terminate() }
+        let editor = app.descendants(matching: .any).matching(identifier: "vvterm.composer.text").firstMatch
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        app.keys["a"].tap()
+        XCTAssertEqual(editor.value as? String, "a")
+        app.buttons["vvterm.composer.attach"].tap()
+        app.buttons["vvterm.attachments.photos"].tap()
+        let photo = app.images.matching(NSPredicate(format: "label BEGINSWITH 'Photo,'")).firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 15), app.debugDescription)
+        photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.buttons["Add"].tap()
+        let attachment = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH 'vvterm.attachment.remove.'")).firstMatch
+        XCTAssertTrue(attachment.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        XCTAssertEqual(editor.value as? String, "a")
+        XCTAssertEqual(app.staticTexts["composer.test.sent"].label, "No input sent")
+        app.keys["b"].tap()
+        XCTAssertEqual(editor.value as? String, "ab")
     }
 
     @MainActor
@@ -918,7 +987,8 @@ final class TerminalComposerUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.terminate()
-        app.launchArguments = ["--vvterm-ui-test-composer", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-AppleInterfaceStyle", "Dark"] + arguments
+        let inputModeArguments = arguments.contains("-terminalInputMode") ? [] : ["-terminalInputMode", "direct"]
+        app.launchArguments = ["--vvterm-ui-test-composer", "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-AppleInterfaceStyle", "Dark"] + inputModeArguments + arguments
         app.launch()
         // Installation can start the regular app before XCUITest supplies its arguments.
         // Restart only when the server list mounted instead of the test harness.

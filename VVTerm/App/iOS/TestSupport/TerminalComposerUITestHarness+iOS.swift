@@ -197,40 +197,53 @@ private struct TerminalComposerUITestContent: View {
                 } label: { Image(systemName: "ellipsis") }
                 .accessibilityIdentifier("composer.test.menu")
             }
-            HStack {
-                Button(model.failUpload ? "Uploads fail" : "Uploads succeed") { model.failUpload.toggle() }
-                    .accessibilityIdentifier("composer.test.fail")
-                Toggle("Attachment button", isOn: $model.attachmentButtonEnabled).accessibilityIdentifier("composer.test.visibility")
-            }
-            Button("Toggle voice availability") {
-                model.voiceButtonEnabled.toggle()
-                if !model.voiceButtonEnabled { model.voicePhase = .idle }
-            }
-            .accessibilityIdentifier("composer.test.voice-availability")
-            if model.pausesUploads {
-                Button("Finish uploads") { model.finishUploads() }
-            }
-            HStack {
-                Button("Disconnect") {
-                    model.connected = false
-                    model.keyboard.setPaneInputEligible(false, for: model.paneID)
+            if !Foundation.ProcessInfo.processInfo.arguments.contains("--composer-keyboard-diagnostics") {
+                HStack {
+                    Button(model.failUpload ? "Uploads fail" : "Uploads succeed") { model.failUpload.toggle() }
+                        .accessibilityIdentifier("composer.test.fail")
+                    Toggle("Attachment button", isOn: $model.attachmentButtonEnabled).accessibilityIdentifier("composer.test.visibility")
                 }
-                Button("Voice state") {
-                    switch model.voicePhase {
-                    case .idle: model.voicePhase = .recording(operationID: UUID())
-                    case .recording(let id): model.voicePhase = .processing(operationID: id)
-                    case .starting, .processing: model.voicePhase = .idle
+                Button("Toggle voice availability") {
+                    model.voiceButtonEnabled.toggle()
+                    if !model.voiceButtonEnabled { model.voicePhase = .idle }
+                }
+                .accessibilityIdentifier("composer.test.voice-availability")
+                if model.pausesUploads {
+                    Button("Finish uploads") { model.finishUploads() }
+                }
+                HStack {
+                    Button("Disconnect") {
+                        model.connected = false
+                        model.keyboard.setPaneInputEligible(false, for: model.paneID)
                     }
-                }.accessibilityIdentifier("composer.test.voice-state")
-                Button("Close") { model.keyboard.relinquishRouteOwnershipForNavigation() }
-                Button("Reconnect") {
-                    model.connected = true
-                    model.keyboard.setPaneInputEligible(true, for: model.paneID)
+                    Button("Voice state") {
+                        switch model.voicePhase {
+                        case .idle: model.voicePhase = .recording(operationID: UUID())
+                        case .recording(let id): model.voicePhase = .processing(operationID: id)
+                        case .starting, .processing: model.voicePhase = .idle
+                        }
+                    }.accessibilityIdentifier("composer.test.voice-state")
+                    Button("Close") { model.keyboard.relinquishRouteOwnershipForNavigation() }
+                    Button("Reconnect") {
+                        model.connected = true
+                        model.keyboard.setPaneInputEligible(true, for: model.paneID)
+                    }
+                }
+                Text(model.recordingKeptEditor ? "Recording kept editor" : "No recording sample")
+                    .accessibilityIdentifier("composer.test.recording-focus").font(.caption)
+                Text(model.terminalTouchDiagnostic).accessibilityIdentifier("composer.test.terminal-touch").font(.caption)
+            }
+            if Foundation.ProcessInfo.processInfo.arguments.contains("--composer-keyboard-diagnostics") {
+                TimelineView(.periodic(from: .now, by: 0.05)) { _ in
+                    Text(model.terminal?.keyboardUITestDiagnostics(
+                        keyboardVisible: model.keyboard.isSoftwareKeyboardVisible,
+                        keyboardHeight: model.keyboard.softwareKeyboardEndFrame?.height ?? 0
+                    ) ?? "terminal=missing")
+                    .font(.system(size: 1))
+                    .frame(height: 1)
+                    .accessibilityIdentifier("composer.test.keyboard")
                 }
             }
-            Text(model.recordingKeptEditor ? "Recording kept editor" : "No recording sample")
-                .accessibilityIdentifier("composer.test.recording-focus").font(.caption)
-            Text(model.terminalTouchDiagnostic).accessibilityIdentifier("composer.test.terminal-touch").font(.caption)
             if Foundation.ProcessInfo.processInfo.arguments.contains("--composer-content-fixture") {
                 Button("Read selection") { model.sampleContent() }
                 Text(model.contentDiagnostic).font(.caption)
@@ -243,7 +256,8 @@ private struct TerminalComposerUITestContent: View {
                 .accessibilityIdentifier("composer.test.bytes")
                 .font(.caption)
             if runtime.app != nil {
-                ComposerTestSurface(model: model, runtime: runtime)
+                ComposerTestSurface(model: model, runtime: runtime,
+                                    isAttachmentPickerPresented: composer.isAttachmentPickerPresented)
                     .frame(minHeight: 70, maxHeight: .infinity)
             }
             if composer.mode == .chat {
@@ -271,6 +285,17 @@ private struct TerminalComposerUITestContent: View {
             scope: .container
         )
         .task(id: model.terminal.map(ObjectIdentifier.init)) { await model.seedContent() }
+        .task(id: model.terminal.map(ObjectIdentifier.init)) {
+            guard Foundation.ProcessInfo.processInfo.arguments.contains("--composer-stream-output"),
+                  let terminal = model.terminal else { return }
+            var tick = 0
+            while !Task.isCancelled, tick < Int.max {
+                tick += 1
+                let output = "\u{1B}[2J\u{1B}[HStreaming output \(tick)\r\n"
+                _ = await terminal.receiveTerminalOutput(Data(output.utf8))
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+        }
         .task(id: model.voicePhase) { await model.sampleRecordingEditor() }
         .modifier(TerminalLinkConfirmationModifier(coordinator: model.links, isActive: model.connected))
         .environment(\.openURL, OpenURLAction { url in
@@ -293,7 +318,7 @@ private struct TerminalComposerUITestContent: View {
                   window.windowScene?.activationState == .foregroundActive else { return }
             model.keyboard.activeTerminalSceneDidActivate(for: model.paneID)
         }
-        .onAppear { inputMode = .direct; composer.setMode(.direct) }
+        .onAppear { composer.setMode(inputMode) }
         .onChange(of: inputMode) { composer.setMode($0) }
         .sheet(isPresented: $showsSettings, onDismiss: {
             model.keyboard.setActivePane(model.paneID)
@@ -311,8 +336,15 @@ private struct TerminalComposerUITestContent: View {
                 if composer.mode == .chat {
                     model.keyboard.insertComposerText(text, for: model.paneID)
                 } else { model.terminal?.pasteTextFromClipboard() }
-            }) {
-                model.keyboard.userRequestedShow()
+            })
+        }
+        .onPreferenceChange(TerminalRouteModalPresentationPreferenceKey.self) { presented in
+            if presented {
+                model.keyboard.deactivateInputImmediately(reason: .routeModal)
+            } else {
+                model.keyboard.setActivePane(model.paneID)
+                model.keyboard.setViewActive(true)
+                model.keyboard.activeTerminalContentDidBecomeVisible(for: model.paneID)
             }
         }
     }
@@ -321,6 +353,8 @@ private struct TerminalComposerUITestContent: View {
 private struct ComposerTestSurface: UIViewRepresentable {
     @ObservedObject var model: TerminalComposerUITestModel
     let runtime: GhosttyRuntime
+    let isAttachmentPickerPresented: Bool
+    @Environment(\.scenePhase) private var scenePhase
 
     func makeUIView(context: Context) -> GhosttyTerminalView {
         let terminal = GhosttyTerminalView(
@@ -340,6 +374,18 @@ private struct ComposerTestSurface: UIViewRepresentable {
 
     func updateUIView(_ terminal: GhosttyTerminalView, context: Context) {
         terminal.applyTerminalAccessoryInputSnapshot(snapshot)
+        switch TerminalRenderingPolicy.transition(
+            terminalIsActive: !isAttachmentPickerPresented,
+            sceneIsActive: TerminalSceneActivityPolicy.isActive(
+                environmentIsActive: scenePhase == .active,
+                windowSceneIsActive: terminal.window?.windowScene.map { $0.activationState == .foregroundActive }
+            ),
+            renderingIsPaused: terminal.isRenderingPaused
+        ) {
+        case .pause: terminal.pauseRendering()
+        case .resume: terminal.resumeRendering()
+        case .none: break
+        }
     }
 
     private var snapshot: TerminalAccessoryInputSnapshot {

@@ -8,6 +8,36 @@ import UIKit
 
 @MainActor
 final class TerminalComposerStoreTests: XCTestCase {
+    func testNativePickerKeepsInputSuspendedUntilDismissalCompletes() {
+        let store = Fixture().store()
+        for source in [TerminalComposerStore.AttachmentSource.camera, .photos, .files] {
+            store.attachmentSource = source
+            store.attachmentPickerWillPresent()
+            store.attachmentSource = nil
+            XCTAssertTrue(store.isAttachmentPickerPresented)
+            XCTAssertEqual(store.presentedAttachmentSource, source)
+            store.attachmentPickerDidDismiss()
+            XCTAssertFalse(store.isAttachmentPickerPresented)
+        }
+        store.attachmentSource = .paste
+        store.attachmentPickerWillPresent()
+        XCTAssertFalse(store.isAttachmentPickerPresented)
+        XCTAssertNil(store.presentedAttachmentSource)
+    }
+
+    func testOnlyNativeAttachmentSourcesPresentAPicker() {
+        let store = Fixture().store()
+        XCTAssertFalse(store.isAttachmentPickerPresented)
+        for source in [TerminalComposerStore.AttachmentSource.camera, .photos, .files] {
+            store.attachmentSource = source
+            XCTAssertTrue(store.isAttachmentPickerPresented)
+        }
+        store.attachmentSource = .paste
+        XCTAssertFalse(store.isAttachmentPickerPresented,
+                       "Paste must keep the current keyboard and terminal presentation.")
+        store.attachmentSource = nil
+        XCTAssertFalse(store.isAttachmentPickerPresented)
+    }
     func testTextAndKeyActionsDoNotResolveAttachmentTransport() async {
         let fixture = Fixture()
         let store = fixture.store()
