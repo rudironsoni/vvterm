@@ -158,9 +158,12 @@ struct ServerListScreen: View {
                 .navigationTitle("Servers")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .principal) { workspaceToolbarButton }
+                    ToolbarItem(placement: .principal) {
+                        workspaceToolbarButton.accessibilityIdentifier("vvterm.sidebar.workspace")
+                    }
                     ToolbarItem(placement: .primaryAction) {
                         Button(action: { presentAddServer() }) { Image(systemName: "plus") }
+                            .accessibilityIdentifier("vvterm.serverList.add")
                     }
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button {

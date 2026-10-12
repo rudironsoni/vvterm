@@ -6,6 +6,52 @@ import XCTest
 
 @MainActor
 final class AdaptiveServerNavigationTests: XCTestCase {
+    func testCollapsedBackPreservesTheOutgoingDetailContent() throws {
+        guard #available(iOS 27.1, *) else { throw XCTSkip("New phone layout policy") }
+        func root(selected: Bool) -> some View {
+            AdaptiveServerNavigation(hasSelection: selected, prefersSingleColumn: true) { _ in
+                EmptyView()
+            } detail: { _ in
+                NavigationDetailLabel(text: selected ? "Terminal" : "Empty")
+            }
+        }
+        let host = UIHostingController(rootView: root(selected: true))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 430, height: 932))
+        window.rootViewController = host
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        var pending: [UIViewController] = [host]
+        var detail: UIViewController?
+        while let controller = pending.popLast() {
+            if controller is UIHostingController<AnyView>,
+               controller.view.viewWithTag(NavigationDetailLabel.tag) != nil {
+                detail = controller
+                break
+            }
+            pending.append(contentsOf: controller.children)
+        }
+        let outgoing = try XCTUnwrap(detail)
+        host.rootView = root(selected: false)
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertEqual((outgoing.view.viewWithTag(NavigationDetailLabel.tag) as? UILabel)?.text, "Terminal",
+                       "Back must keep the outgoing terminal instead of showing the empty destination during the animation.")
+    }
+
+    func testSelectionWaitsForTheDetailContentUpdateBeforeNavigation() {
+        let coordinator = AdaptiveServerNavigation<EmptyView, EmptyView>.Coordinator()
+        let split = RecordingSplitViewController(collapsed: true)
+        coordinator.split = split
+        coordinator.showDetail()
+        XCTAssertTrue(split.shownColumns.isEmpty,
+                      "The selection callback runs before SwiftUI updates the detail content.")
+        coordinator.updateSelection(true)
+        XCTAssertEqual(split.shownColumns, [.secondary])
+    }
+
     func testNarrowPhoneLayoutUsesOneColumnAndWideLayoutRestoresNativeTraits() throws {
         guard #available(iOS 27.1, *) else { throw XCTSkip("New phone layout policy") }
         XCTAssertTrue(ServerNavigationLayoutPolicy.prefersSingleColumn(availableWidth: 740, isPhone: true))
@@ -66,11 +112,11 @@ final class AdaptiveServerNavigationTests: XCTestCase {
         let split = RecordingSplitViewController(collapsed: true)
         coordinator.split = split
         coordinator.updateSelection(true)
-        XCTAssertTrue(split.shownColumns.isEmpty)
+        XCTAssertEqual(split.shownColumns, [.secondary])
         coordinator.updateSelection(false)
-        XCTAssertEqual(split.shownColumns, [.primary])
+        XCTAssertEqual(split.shownColumns, [.secondary, .primary])
         coordinator.updateSelection(false)
-        XCTAssertEqual(split.shownColumns, [.primary], "Repeated updates must not repeat navigation.")
+        XCTAssertEqual(split.shownColumns, [.secondary, .primary], "Repeated updates must not repeat navigation.")
     }
 
     func testClearingSelectionKeepsExpandedColumnsInPlace() {
@@ -86,6 +132,7 @@ final class AdaptiveServerNavigationTests: XCTestCase {
         let coordinator = AdaptiveServerNavigation<EmptyView, EmptyView>.Coordinator()
         let split = RecordingSplitViewController(collapsed: false)
         coordinator.split = split
+        coordinator.updateSelection(true)
         split.simulatedDisplayMode = .oneOverSecondary
         coordinator.showDetail()
         XCTAssertEqual(split.hiddenColumns, [.primary])
@@ -113,8 +160,7 @@ final class AdaptiveServerNavigationTests: XCTestCase {
 
     func testCollapsedDetailHidesOuterBarAndReturningRestoresIt() {
         let coordinator = AdaptiveServerNavigation<EmptyView, EmptyView>.Coordinator()
-        let navigation = UINavigationController(rootViewController: coordinator.sidebar)
-        navigation.delegate = coordinator
+        let navigation = ServerNavigationController(rootViewController: coordinator.sidebar, column: .primary)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = navigation
         window.isHidden = false
@@ -134,6 +180,59 @@ final class AdaptiveServerNavigationTests: XCTestCase {
         navigation.view.layoutIfNeeded()
         XCTAssertFalse(navigation.isNavigationBarHidden)
     }
+
+    func testDetailContentUpdateCannotRestoreTheOuterNavigationBar() {
+        let coordinator = AdaptiveServerNavigation<EmptyView, EmptyView>.Coordinator()
+        let navigation = ServerNavigationController(rootViewController: coordinator.sidebar, column: .primary)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 430, height: 932))
+        window.rootViewController = navigation
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        navigation.pushViewController(coordinator.detail, animated: false)
+        navigation.view.layoutIfNeeded()
+        XCTAssertTrue(navigation.isNavigationBarHidden)
+
+        // The detail acquires its SwiftUI toolbar after the first native push.
+        // A later bar update must not reserve space for a second toolbar.
+        navigation.setNavigationBarHidden(false, animated: false)
+        navigation.view.setNeedsLayout()
+        navigation.view.layoutIfNeeded()
+        XCTAssertTrue(navigation.isNavigationBarHidden)
+
+        navigation.popViewController(animated: false)
+        navigation.view.layoutIfNeeded()
+        XCTAssertFalse(navigation.isNavigationBarHidden)
+    }
+
+    func testReturningSidebarRepairsALateHiddenNavigationBar() {
+        let coordinator = AdaptiveServerNavigation<EmptyView, EmptyView>.Coordinator()
+        let navigation = ServerNavigationController(rootViewController: coordinator.sidebar, column: .primary)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 430, height: 932))
+        window.rootViewController = navigation
+        window.isHidden = false
+        defer { window.isHidden = true; window.rootViewController = nil }
+        navigation.pushViewController(coordinator.detail, animated: false)
+        navigation.popViewController(animated: false)
+        navigation.view.layoutIfNeeded()
+
+        // A departing SwiftUI detail can update the bar after the native pop.
+        navigation.setNavigationBarHidden(true, animated: false)
+        navigation.view.setNeedsLayout()
+        navigation.view.layoutIfNeeded()
+        XCTAssertFalse(navigation.isNavigationBarHidden,
+                       "The visible sidebar must restore its own toolbar.")
+    }
+}
+
+private struct NavigationDetailLabel: UIViewRepresentable {
+    static let tag = 9153
+    let text: String
+    func makeUIView(context: Context) -> UILabel {
+        let label = UILabel()
+        label.tag = Self.tag
+        return label
+    }
+    func updateUIView(_ label: UILabel, context: Context) { label.text = text }
 }
 
 private final class RecordingSplitViewController: UISplitViewController {

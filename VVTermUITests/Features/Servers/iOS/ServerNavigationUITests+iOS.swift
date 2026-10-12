@@ -8,6 +8,59 @@ final class ServerNavigationUITests: XCTestCase {
     }
 
     @MainActor
+    func testFreshConnectionKeepsToolbarPositionAndFullScreenBackground() throws {
+        let app = launchNavigationHarness(freshConnection: true)
+        defer { app.terminate() }
+        let diagnostics = app.staticTexts["vvterm.reconnectTest.diagnostics"]
+        XCTAssertTrue(diagnostics.waitForExistence(timeout: 45))
+        wait(for: diagnostics, containing: "setup=ready pane=missing", app: app)
+        assertServerToolbar(in: app)
+        let serverRow = app.descendants(matching: .any)
+            .matching(identifier: "vvterm.serverList.server.D3A03FD5-453E-43AC-8BB5-838E5D5D1990")
+            .firstMatch
+        let list = app.descendants(matching: .any)
+            .matching(identifier: "vvterm.serverList.list").firstMatch
+        scrollToVisible(serverRow, in: list, app: app)
+        tapVisible(serverRow)
+        wait(for: diagnostics, containing: "state=connected", timeout: 45, app: app)
+        let back = app.buttons["vvterm.terminal.back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 8), diagnosticText(in: app))
+        let firstTop = back.frame.minY
+        wait(for: diagnostics, containing: "keyboardVisible=true", app: app)
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 8), diagnosticText(in: app))
+        try assertTerminalBackground(in: app, at: CGPoint(x: 2, y: keyboard.frame.minY + 2))
+
+        back.tap()
+        XCTAssertTrue(list.waitForExistence(timeout: 8))
+        assertServerToolbar(in: app)
+        scrollToVisible(serverRow, in: list, app: app)
+        tapVisible(serverRow)
+        wait(for: diagnostics, containing: "state=connected", app: app)
+        XCTAssertEqual(back.frame.minY, firstTop, accuracy: 1,
+                       "First entry and reopening must use the same top inset.")
+        wait(for: diagnostics, containing: "keyboardVisible=true", app: app)
+        let hide = app.buttons["vvterm.keyboard.accessory.hide"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 8))
+        hide.tap()
+        wait(for: diagnostics, containing: "keyboardVisible=false", app: app)
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 8))
+        try assertTerminalBackground(in: app, at: CGPoint(x: app.frame.midX, y: app.frame.maxY - 40))
+        back.tap()
+        XCTAssertTrue(list.waitForExistence(timeout: 8))
+        assertServerToolbar(in: app)
+    }
+
+    @MainActor
+    private func assertServerToolbar(in app: XCUIApplication) {
+        for identifier in ["vvterm.sidebar.workspace", "vvterm.serverList.add", "vvterm.serverList.settings"] {
+            let button = app.buttons[identifier]
+            XCTAssertTrue(button.waitForExistence(timeout: 8), "Missing \(identifier). \(app.debugDescription)")
+            XCTAssertTrue(button.isHittable, "Hidden \(identifier). \(app.debugDescription)")
+        }
+    }
+
+    @MainActor
     func testServerEntryShowsKeyboardAndKeepsMenuStableWithPrivacyMode() throws {
         try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "iPhone stack flow; iPad uses SessionsNavigationUITests")
         let app = launchNavigationHarness(privacyModeEnabled: true)
@@ -228,7 +281,10 @@ final class ServerNavigationUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchNavigationHarness(privacyModeEnabled: Bool = false) -> XCUIApplication {
+    private func launchNavigationHarness(
+        privacyModeEnabled: Bool = false,
+        freshConnection: Bool = false
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         app.terminate()
         app.launchArguments = [
@@ -246,6 +302,15 @@ final class ServerNavigationUITests: XCTestCase {
             "-security.fullAppLockEnabled", "NO",
             "-security.lockOnBackground", "NO",
         ]
+        if freshConnection {
+            app.launchArguments += [
+                "--vvterm-ui-test-fresh-server-navigation",
+                "-appearanceMode", "dark",
+                "-terminalUsePerAppearanceTheme", "NO",
+                "-terminalThemeName", "Aizen Dark",
+                "-terminalPreserveSizeForKeyboard", "NO",
+            ]
+        }
         app.launch()
 
         let diagnostics = app.staticTexts["vvterm.reconnectTest.diagnostics"]
@@ -255,6 +320,29 @@ final class ServerNavigationUITests: XCTestCase {
             app.launch()
         }
         return app
+    }
+
+    @MainActor
+    private func assertTerminalBackground(in app: XCUIApplication, at point: CGPoint) throws {
+        let screenshot = app.screenshot()
+        let image = try XCTUnwrap(screenshot.image.cgImage)
+        let x = Int(point.x * CGFloat(image.width) / app.frame.width)
+        let y = Int(point.y * CGFloat(image.height) / app.frame.height)
+        XCTAssertTrue((0..<image.width).contains(x) && (0..<image.height).contains(y))
+        let sample = try XCTUnwrap(image.cropping(to: CGRect(x: x, y: y, width: 1, height: 1)))
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let colorSpace = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        try pixel.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(CGContext(
+                data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        for component in pixel.prefix(3) {
+            XCTAssertEqual(Double(component), 26, accuracy: 3,
+                           "The full terminal backdrop must use Aizen Dark, including keyboard gaps.")
+        }
     }
 
     @MainActor

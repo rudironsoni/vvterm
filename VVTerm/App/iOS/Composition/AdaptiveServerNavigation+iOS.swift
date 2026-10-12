@@ -34,10 +34,9 @@ struct AdaptiveServerNavigation<Sidebar: View, Detail: View>: UIViewControllerRe
             split.preferredPrimaryColumnWidthFraction = 0.28
         }
         for (host, column) in [(coordinator.sidebar, UISplitViewController.Column.primary), (coordinator.detail, .secondary)] {
-            let navigation = UINavigationController(rootViewController: host)
+            let navigation = ServerNavigationController(rootViewController: host, column: column)
             // The primary uses the native bar to reserve space for iPad window controls.
             navigation.setNavigationBarHidden(column == .secondary, animated: false)
-            if column == .primary { navigation.delegate = coordinator }
             split.setViewController(navigation, for: column)
         }
         updateUIViewController(split, context: context)
@@ -46,21 +45,25 @@ struct AdaptiveServerNavigation<Sidebar: View, Detail: View>: UIViewControllerRe
 
     func updateUIViewController(_ split: UISplitViewController, context: Context) {
         let coordinator = context.coordinator
-        coordinator.updateSelection(hasSelection)
         coordinator.updateLayout(prefersSingleColumn: prefersSingleColumn)
         coordinator.sidebar.rootView = AnyView(
             sidebar { [weak coordinator] in coordinator?.showDetail() }
                 .environment(\.self, context.environment)
         )
-        coordinator.detail.rootView = AnyView(
-            NavigationStack { detail { [weak coordinator] in coordinator?.toggleSidebar() } }
-                // This root also participates in UIKit's collapsed navigation stack.
-                .navigationBarBackButtonHidden(true)
-                .environment(\.self, context.environment)
-        )
+        // A collapsed Back transition still displays its outgoing detail.
+        // Keep that content until the native pop finishes.
+        if hasSelection || (!prefersSingleColumn && !split.isCollapsed) {
+            coordinator.detail.rootView = AnyView(
+                NavigationStack { detail { [weak coordinator] in coordinator?.toggleSidebar() } }
+                    // This root also participates in UIKit's collapsed navigation stack.
+                    .navigationBarBackButtonHidden(true)
+                    .environment(\.self, context.environment)
+            )
+        }
+        coordinator.updateSelection(hasSelection)
     }
 
-    final class Coordinator: NSObject, UISplitViewControllerDelegate, UINavigationControllerDelegate {
+    final class Coordinator: NSObject, UISplitViewControllerDelegate {
         weak var split: UISplitViewController?
         let sidebar = UIHostingController(rootView: AnyView(EmptyView()))
         let detail = UIHostingController(rootView: AnyView(EmptyView().navigationBarBackButtonHidden(true)))
@@ -76,22 +79,31 @@ struct AdaptiveServerNavigation<Sidebar: View, Detail: View>: UIViewControllerRe
         }
 
         func updateSelection(_ hasSelection: Bool) {
+            let openedSelection = !self.hasSelection && hasSelection
             let clearedSelection = self.hasSelection && !hasSelection
             self.hasSelection = hasSelection
-            if clearedSelection, let split, split.isCollapsed {
+            if openedSelection {
+                showDetail()
+            } else if clearedSelection, let split, split.isCollapsed {
                 split.show(.primary)
+                if let transition = split.transitionCoordinator {
+                    transition.animate(alongsideTransition: nil) { [weak self] _ in
+                        self?.clearInactiveDetail()
+                    }
+                } else {
+                    clearInactiveDetail()
+                }
             }
         }
 
-        func navigationController(_ navigationController: UINavigationController,
-                                  willShow viewController: UIViewController, animated: Bool) {
-            // On collapse, UIKit moves the detail into the primary navigation stack.
-            // Its SwiftUI NavigationStack already owns the detail toolbar.
-            navigationController.setNavigationBarHidden(viewController !== sidebar, animated: animated)
+        private func clearInactiveDetail() {
+            guard !hasSelection, split?.isCollapsed == true,
+                  detail.viewIfLoaded?.window == nil else { return }
+            detail.rootView = AnyView(EmptyView().navigationBarBackButtonHidden(true))
         }
 
         func showDetail() {
-            guard let split else { return }
+            guard hasSelection, let split else { return }
             if split.isCollapsed {
                 split.show(.secondary)
             } else if split.displayMode == .oneOverSecondary {

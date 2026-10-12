@@ -52,6 +52,7 @@ struct TerminalReconnectUITestHarness: View {
     @StateObject private var fileTabs: RemoteFileTabManager
     @ObservedObject private var fileBrowser: RemoteFileBrowserStore
     @State private var fixtureState = FixtureState.preparing
+    @EnvironmentObject private var viewTabConfiguration: ViewTabConfigurationManager
 
     init(
         tabManager: TerminalTabManager,
@@ -264,6 +265,12 @@ struct TerminalReconnectUITestHarness: View {
         )
     }
 
+    private var startsWithUnopenedServer: Bool {
+        Foundation.ProcessInfo.processInfo.arguments.contains(
+            "--vvterm-ui-test-fresh-server-navigation"
+        )
+    }
+
     private var usesColdRelaunchHarness: Bool {
         Foundation.ProcessInfo.processInfo.arguments.contains(
             "--vvterm-ui-test-cold-relaunch"
@@ -406,7 +413,7 @@ struct TerminalReconnectUITestHarness: View {
                 )
             }
 
-            if !usesColdRelaunchHarness || seedsColdRelaunchHarness {
+            if (!usesColdRelaunchHarness || seedsColdRelaunchHarness) && !startsWithUnopenedServer {
                 let firstTab = try await tabManager.openTab(for: server)
                 if usesTabSwitchHarness {
                     _ = try await tabManager.openTab(for: server)
@@ -424,7 +431,7 @@ struct TerminalReconnectUITestHarness: View {
                 } else {
                     tabManager.sessionState.selectTab(firstTab.id, for: server.id)
                 }
-            } else if tabManager.sessionState.tabs(for: server.id).isEmpty {
+            } else if usesColdRelaunchHarness, tabManager.sessionState.tabs(for: server.id).isEmpty {
                 throw VVTermError.connectionFailed("Cold relaunch snapshot was not restored")
             }
             if usesSessionsHarness {
@@ -432,6 +439,9 @@ struct TerminalReconnectUITestHarness: View {
                 _ = fileTabs.openTab(for: server, seedPath: "/tmp", hasProAccess: true)
             }
             tabManager.sessionState.selectView(.terminal, for: server.id)
+            if startsWithUnopenedServer {
+                viewTabConfiguration.setDefaultTab(.terminal)
+            }
             fixtureState = .ready(server)
         } catch {
             fixtureState = .failed(error.localizedDescription)

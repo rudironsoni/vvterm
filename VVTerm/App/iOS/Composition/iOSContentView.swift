@@ -172,8 +172,10 @@ struct iOSContentView: View {
                         terminalDestination(onToggleSidebar: showsSidebar ? toggleSidebar : nil)
                     }
                 }
-                // UIKit owns column safe areas, including side controls on Duo.
-                .ignoresSafeArea(.container)
+                // Each hosted column owns its keyboard layout. Keep the native
+                // columns full-height so their backgrounds also cover the area
+                // behind the keyboard and its rounded corners.
+                .ignoresSafeArea()
             } else {
                 NavigationStack {
                     serverList(onSelection: {})
