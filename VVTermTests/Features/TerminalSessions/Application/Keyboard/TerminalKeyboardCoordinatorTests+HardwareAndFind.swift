@@ -11,6 +11,87 @@ extension TerminalKeyboardCoordinatorTests {
     struct HardwareAndFind {
         @Test
         @MainActor
+        func hardwareHideKeepsExplicitShowIntent() async {
+            let paneID = UUID()
+            let session = TerminalKeyboardInputSessionSpy()
+            session.snapshot.hasHardwareKeyboardAttached = true
+            session.snapshot.screenFrame = CGRect(x: 0, y: 0, width: 1024, height: 1000)
+            let events = TerminalKeyboardCoordinatorEventSourceSpy()
+            let coordinator = TerminalKeyboardCoordinator(keyboardEventSource: events, lifecycleLoggingEnabled: false)
+            coordinator.terminalProvider = { _ in session }
+            coordinator.setActivePane(paneID)
+            coordinator.setPaneInputEligible(true, for: paneID)
+            coordinator.setWindowAttached(true, for: paneID)
+            coordinator.setViewActive(true)
+            await drainMainQueue()
+            coordinator.userRequestedShow()
+            await drainMainQueue()
+            events.send(.frameChanged(CGRect(x: 0, y: 700, width: 1024, height: 300)))
+            session.resetCommands()
+            events.send(.hidden)
+            try? await Task.sleep(nanoseconds: 1_100_000_000)
+            await drainMainQueue()
+            #expect(!coordinator.isUserHidden)
+            #expect(!session.snapshot.isKeyboardInBrowseMode)
+            #expect(session.snapshot.isSoftwareInputActive)
+            #expect(session.accessorySuppressionRequests.last == true)
+            #expect(session.rebuildCount == 0)
+        }
+
+        @Test
+        @MainActor
+        func delayedHardwareAttachmentClearsObservedHideAndKeepsInput() async {
+            let paneID = UUID()
+            let session = TerminalKeyboardInputSessionSpy()
+            session.snapshot.screenFrame = CGRect(x: 0, y: 0, width: 1024, height: 1000)
+            let events = TerminalKeyboardCoordinatorEventSourceSpy()
+            let coordinator = TerminalKeyboardCoordinator(keyboardEventSource: events, lifecycleLoggingEnabled: false)
+            coordinator.terminalProvider = { _ in session }
+            coordinator.setActivePane(paneID)
+            coordinator.setPaneInputEligible(true, for: paneID)
+            coordinator.setWindowAttached(true, for: paneID)
+            coordinator.setViewActive(true)
+            await drainMainQueue()
+            events.send(.frameChanged(CGRect(x: 0, y: 700, width: 1024, height: 300)))
+            events.send(.hidden)
+            try? await Task.sleep(nanoseconds: 1_100_000_000)
+            await drainMainQueue()
+            #expect(coordinator.isUserHidden)
+
+            session.snapshot.hasHardwareKeyboardAttached = true
+            coordinator.hardwareKeyboardAttachmentDidChange(for: paneID)
+            await drainMainQueue()
+            #expect(!coordinator.isUserHidden)
+            #expect(!session.snapshot.isKeyboardInBrowseMode)
+            #expect(session.snapshot.isSoftwareInputActive)
+            #expect(session.snapshot.isSoftwareKeyboardSuppressed)
+            #expect(session.forceSoftwareKeyboardCount == 0)
+        }
+
+        @Test
+        @MainActor
+        func hardwareAttachmentPreservesExplicitUserHide() async {
+            let paneID = UUID()
+            let session = TerminalKeyboardInputSessionSpy()
+            let coordinator = makeTerminalKeyboardCoordinator()
+            coordinator.terminalProvider = { _ in session }
+            coordinator.setActivePane(paneID)
+            coordinator.setPaneInputEligible(true, for: paneID)
+            coordinator.setWindowAttached(true, for: paneID)
+            coordinator.setViewActive(true)
+            await drainMainQueue()
+            coordinator.userRequestedHide()
+            await drainMainQueue()
+            session.snapshot.hasHardwareKeyboardAttached = true
+            coordinator.hardwareKeyboardAttachmentDidChange(for: paneID)
+            await drainMainQueue()
+            #expect(coordinator.isUserHidden)
+            #expect(session.snapshot.isKeyboardInBrowseMode)
+            #expect(session.snapshot.isSoftwareInputActive)
+        }
+
+        @Test
+        @MainActor
         func hardwareSuppressionClearsStaleDockedKeyboardPresentationWithoutReload() async {
             let paneId = UUID()
             let session = TerminalKeyboardInputSessionSpy()

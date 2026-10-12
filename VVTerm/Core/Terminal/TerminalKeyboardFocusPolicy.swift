@@ -52,6 +52,14 @@ nonisolated struct TerminalKeyboardFocusPolicy: Sendable {
         isBrowsing || (hasHardwareKeyboardAttached && !forcesSoftwareKeyboardPresentation)
     }
 
+    mutating func setSoftwareKeyboardHidden(_ hidden: Bool) {
+        if hidden {
+            mode = .browse
+        } else if isBrowsing {
+            mode = .automaticTyping(restoreOnReconnect: true)
+        }
+    }
+
     mutating func requestFocus(for reason: TerminalKeyboardFocusReason) -> Bool {
         switch reason {
         case .explicitUserRequest:

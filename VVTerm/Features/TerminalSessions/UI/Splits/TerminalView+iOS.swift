@@ -232,7 +232,8 @@ struct RemoteTerminalPaneRepresentable: UIViewRepresentable {
             coordinator.preservePane = true
             configureExistingTerminal(existingTerminal, coordinator: coordinator)
             existingTerminal.imeProxyTextView.applyKeyboardOptions(.init(rawValue: storedKeyboardOptions))
-            existingTerminal.acceptsTerminalInput = isActive
+            existingTerminal.acceptsTerminalInput = tabManager.sessionState
+                .paneState(for: paneId)?.connectionState.isConnected == true
 
             if existingTerminal.superview != nil {
                 existingTerminal.removeFromSuperview()
@@ -330,7 +331,7 @@ struct RemoteTerminalPaneRepresentable: UIViewRepresentable {
         guard let terminalView = uiView as? GhosttyTerminalView,
               terminalView.panePresentationOwner === context.coordinator else { return }
 
-        guard tabManager.sessionState.paneState(for: paneId) != nil else {
+        guard let paneState = tabManager.sessionState.paneState(for: paneId) else {
             terminalView.acceptsTerminalInput = false
             terminalView.writeCallback = nil
             terminalView.onReady = nil
@@ -357,7 +358,10 @@ struct RemoteTerminalPaneRepresentable: UIViewRepresentable {
             renderingIsPaused: terminalView.isRenderingPaused
         )
 
-        terminalView.acceptsTerminalInput = isActive
+        // Connection state owns routing availability. SwiftUI can reuse an
+        // inactive pane host after a split; focus belongs to the keyboard
+        // coordinator and must not leave the live responder unable to type.
+        terminalView.acceptsTerminalInput = paneState.connectionState.isConnected
         let presentationOverrides = tabManager.sessionState.presentationOverrides(for: paneId)
         if terminalView.surfacePresentationOverrides != presentationOverrides {
             terminalView.applyPresentationOverrides(presentationOverrides)

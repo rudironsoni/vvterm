@@ -3,6 +3,75 @@ import XCTest
 
 final class TerminalKeyboardOwnershipUITests: TerminalKeyboardUITestCase {
     @MainActor
+    func testCommandOptionArrowSwitchKeepsInputInSelectedPane() throws {
+        let app = launchKeyboardHarness(splitPaneFocus: true)
+        let diagnostics = app.staticTexts["vvterm.keyboardTest.diagnostics"]
+        XCTAssertTrue(app.buttons["vvterm.keyboardTest.hardware.attach"].waitForExistence(timeout: 10))
+        app.buttons["vvterm.keyboardTest.hardware.attach"].tap()
+        wait(for: diagnostics, labelContaining: "imeProxyFirstResponder=true", timeout: 5, diagnostics: diagnosticsText(in: app))
+
+        for index in 0..<4 {
+            app.typeKey(XCUIKeyboardKey.downArrow.rawValue, modifierFlags: [.command, .option])
+            wait(for: diagnostics, labelContaining: "focusedPane=second", timeout: 5, diagnostics: diagnosticsText(in: app))
+            wait(for: diagnostics, labelContaining: "imeProxyFirstResponder=true", timeout: 5, diagnostics: diagnosticsText(in: app))
+            app.typeText("b")
+            wait(for: diagnostics, labelContaining: "secondInputHex=62", timeout: 5, diagnostics: diagnosticsText(in: app))
+
+            app.typeKey(XCUIKeyboardKey.upArrow.rawValue, modifierFlags: [.command, .option])
+            wait(for: diagnostics, labelContaining: "focusedPane=first", timeout: 5, diagnostics: diagnosticsText(in: app))
+            wait(for: diagnostics, labelContaining: "imeProxyFirstResponder=true", timeout: 5, diagnostics: diagnosticsText(in: app))
+            app.typeText("a")
+            wait(for: diagnostics, labelContaining: "firstInputHex=61", timeout: 5, diagnostics: diagnosticsText(in: app))
+            wait(for: diagnostics, labelContaining: "paneShortcutActions=\((index + 1) * 2)", timeout: 5, diagnostics: diagnosticsText(in: app))
+        }
+    }
+
+    @MainActor
+    func testPaneShortcutReturnsToHiddenPaneAndRoutesTyping() throws {
+        let app = launchKeyboardHarness(simulatesKeyboardFrames: true, splitPaneFocus: true)
+        let diagnostics = app.staticTexts["vvterm.keyboardTest.diagnostics"]
+        XCTAssertTrue(app.buttons["vvterm.keyboardTest.hardware.attach"].waitForExistence(timeout: 10))
+        app.buttons["vvterm.keyboardTest.hardware.attach"].tap()
+        app.buttons["vvterm.keyboardTest.hideViaToolbar"].tap()
+        wait(for: diagnostics, labelContaining: "browse=true", timeout: 5, diagnostics: diagnosticsText(in: app))
+        app.buttons["vvterm.keyboardTest.command.nextPane"].tap()
+        wait(for: diagnostics, labelContaining: "focusedPane=second", timeout: 5, diagnostics: diagnosticsText(in: app))
+        wait(for: diagnostics, labelContaining: "browse=true", timeout: 5, diagnostics: diagnosticsText(in: app))
+        app.buttons["vvterm.keyboardTest.showKeyboard"].tap()
+        wait(for: diagnostics, labelContaining: "userHidden=false", timeout: 5, diagnostics: diagnosticsText(in: app))
+        app.buttons["vvterm.keyboardTest.command.previousPane"].tap()
+        wait(for: diagnostics, labelContaining: "focusedPane=first", timeout: 5, diagnostics: diagnosticsText(in: app))
+        wait(for: diagnostics, labelContaining: "imeProxyFirstResponder=true", timeout: 5, diagnostics: diagnosticsText(in: app))
+        wait(for: diagnostics, labelContaining: "browse=false", timeout: 5, diagnostics: diagnosticsText(in: app))
+        app.typeText("a")
+        wait(for: diagnostics, labelContaining: "firstInputHex=61", timeout: 5, diagnostics: diagnosticsText(in: app))
+        XCTAssertTrue(diagnostics.label.contains("secondInputHex=none"), diagnosticsText(in: app))
+        app.buttons["vvterm.keyboardTest.command.nextPane"].tap()
+        wait(for: diagnostics, labelContaining: "focusedPane=second", timeout: 5, diagnostics: diagnosticsText(in: app))
+        app.typeText("b")
+        wait(for: diagnostics, labelContaining: "secondInputHex=62", timeout: 5, diagnostics: diagnosticsText(in: app))
+        XCTAssertTrue(diagnostics.label.contains("firstInputHex=61"), diagnosticsText(in: app))
+    }
+
+    @MainActor
+    func testLateHardwareConnectionRemovesInferredFloatingControlsBeforeTyping() throws {
+        let app = launchKeyboardHarness(simulatesKeyboardFrames: true, simulatesHardwareConnectionNotification: true)
+        _ = waitForTerminal(in: app)
+        let diagnostics = app.staticTexts["vvterm.keyboardTest.diagnostics"]
+        app.buttons["vvterm.keyboardTest.geometry.docked"].tap()
+        app.buttons["vvterm.keyboardTest.geometry.systemHide"].tap()
+        wait(for: diagnostics, labelContaining: "userHidden=true", timeout: 5, diagnostics: diagnosticsText(in: app))
+        XCTAssertTrue(app.buttons["vvterm.terminal.floating.keyboard"].waitForExistence(timeout: 5))
+        app.buttons["vvterm.keyboardTest.hardware.attach"].tap()
+        wait(for: diagnostics, labelContaining: "hardware=true", timeout: 5, diagnostics: diagnosticsText(in: app))
+        wait(for: diagnostics, labelContaining: "userHidden=false", timeout: 5, diagnostics: diagnosticsText(in: app))
+        wait(for: diagnostics, labelContaining: "accessoryHidden=true", timeout: 5, diagnostics: diagnosticsText(in: app))
+        XCTAssertFalse(app.buttons["vvterm.terminal.floating.keyboard"].exists, diagnosticsText(in: app))
+        app.typeText("x")
+        wait(for: diagnostics, labelContaining: "inputHex=78", timeout: 5, diagnostics: diagnosticsText(in: app))
+    }
+
+    @MainActor
     func testInitialKeyboardAndOpenMenuStayStable() throws {
         let app = launchKeyboardHarness()
         _ = waitForTerminal(in: app)

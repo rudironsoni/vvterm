@@ -10,6 +10,23 @@ import GameController
 import UIKit
 
 extension GhosttyTerminalView {
+    enum HardwareKeyboardAttachment {
+        case notDetected
+        case disconnected
+        case connected
+        case detectedFromKeyPress
+
+        var isAttached: Bool { self == .connected || self == .detectedFromKeyPress }
+
+        func resolveSystemAttachment(_ attached: Bool) -> Bool {
+            switch self {
+            case .connected: true
+            case .disconnected: false
+            case .notDetected, .detectedFromKeyPress: attached
+            }
+        }
+    }
+
     func setupHardwareKeyboardObservation() {
         guard hardwareKeyboardObservers.isEmpty else { return }
         let center = NotificationCenter.default
@@ -19,8 +36,8 @@ extension GhosttyTerminalView {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.updateHardwareKeyboardState(reloadInputViewsIfNeeded: true)
+                MainActor.assumeIsolated {
+                    self?.updateHardwareKeyboardState(attached: true, reloadInputViewsIfNeeded: true)
                 }
             }
         )
@@ -30,8 +47,8 @@ extension GhosttyTerminalView {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.updateHardwareKeyboardState(reloadInputViewsIfNeeded: true)
+                MainActor.assumeIsolated {
+                    self?.updateHardwareKeyboardState(attached: false, reloadInputViewsIfNeeded: true)
                 }
             }
         )
@@ -49,14 +66,19 @@ extension GhosttyTerminalView {
         let hasHardwareKeyboard = detectedHardwareKeyboardAttached
         let previousInputConfiguration = terminalInputConfiguration
         if setHardwareKeyboardAttached(hasHardwareKeyboard) {
-            notifyKeyboardBrowseModeChange(
-                previousInputConfiguration: previousInputConfiguration
+            reloadTerminalInputViews(
+                ifChangedFrom: previousInputConfiguration
             )
         }
     }
 
-    func updateHardwareKeyboardState(reloadInputViewsIfNeeded: Bool) {
-        let hasHardwareKeyboard = detectedHardwareKeyboardAttached
+    func updateHardwareKeyboardState(attached: Bool? = nil, reloadInputViewsIfNeeded: Bool) {
+        var hasHardwareKeyboard = attached ?? detectedHardwareKeyboardAttached
+        #if DEBUG
+        if let keyboardUITestHardwareKeyboardOverride {
+            hasHardwareKeyboard = keyboardUITestHardwareKeyboardOverride
+        }
+        #endif
         let previousInputConfiguration = terminalInputConfiguration
         // UIKit can report the same attachment more than once while presenting
         // input UI. Reloading an unchanged input view can move an open menu.
@@ -65,7 +87,7 @@ extension GhosttyTerminalView {
             "hardware.changed",
             detail: "attached=\(hasHardwareKeyboard) vendor=\(GCKeyboard.coalesced?.vendorName ?? "nil")"
         )
-        notifyKeyboardBrowseModeChange(previousInputConfiguration: previousInputConfiguration)
+        reloadTerminalInputViews(ifChangedFrom: previousInputConfiguration)
         if hasHardwareKeyboard {
             focusForHardwareKeyboardIfNeeded()
         } else if isTerminalTextInputActive, isTextInputSessionEligible, !isFindNavigatorActive {
@@ -81,11 +103,13 @@ extension GhosttyTerminalView {
 
     @discardableResult
     func setHardwareKeyboardAttached(_ attached: Bool) -> Bool {
-        guard attached != hasHardwareKeyboardAttached else { return false }
+        let attachment: HardwareKeyboardAttachment = attached ? .connected : .disconnected
+        guard attachment != hardwareKeyboardAttachment else { return false }
         if !attached {
             cancelTrackedHardwareInput()
         }
-        hasHardwareKeyboardAttached = attached
+        hardwareKeyboardAttachment = attachment
+        onHardwareKeyboardAttachmentChange?()
         return true
     }
 
@@ -95,10 +119,11 @@ extension GhosttyTerminalView {
         #endif
         guard !hasHardwareKeyboardAttached else { return }
         let previousInputConfiguration = terminalInputConfiguration
-        hasHardwareKeyboardAttached = true
-        notifyKeyboardBrowseModeChange(
-            previousInputConfiguration: previousInputConfiguration
+        hardwareKeyboardAttachment = .detectedFromKeyPress
+        reloadTerminalInputViews(
+            ifChangedFrom: previousInputConfiguration
         )
+        onHardwareKeyboardAttachmentChange?()
         focusForHardwareKeyboardIfNeeded()
     }
 
@@ -108,7 +133,10 @@ extension GhosttyTerminalView {
             return keyboardUITestHardwareKeyboardOverride
         }
         #endif
-        return GCKeyboard.coalesced != nil
+        // Connection notifications are authoritative even when the system
+        // property has not caught up. A key-only fallback can still expire
+        // on a negative system probe (for example, after remote input ends).
+        return hardwareKeyboardAttachment.resolveSystemAttachment(GCKeyboard.coalesced != nil)
     }
 }
 

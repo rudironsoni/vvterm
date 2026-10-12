@@ -3,6 +3,26 @@ import Testing
 
 struct TerminalKeyboardFocusPolicyTests {
     @Test
+    func screenVisibilityIntentClearsStaleBrowseModeWithoutForcingSoftwareKeyboard() {
+        var policy = TerminalKeyboardFocusPolicy()
+        policy.dismissForUser()
+        policy.setSoftwareKeyboardHidden(false)
+        let automaticFocusAccepted = policy.requestFocus(for: .initialActivation)
+        #expect(automaticFocusAccepted)
+        #expect(!policy.isBrowsing)
+        #expect(!policy.forcesSoftwareKeyboardPresentation)
+        #expect(policy.shouldSuppressSoftwareKeyboard(hasHardwareKeyboardAttached: true))
+
+        let explicitFocusAccepted = policy.requestFocus(for: .explicitUserRequest)
+        #expect(explicitFocusAccepted)
+        policy.setSoftwareKeyboardHidden(false)
+        #expect(policy.forcesSoftwareKeyboardPresentation)
+        policy.setSoftwareKeyboardHidden(true)
+        #expect(policy.isBrowsing)
+        #expect(!policy.forcesSoftwareKeyboardPresentation)
+    }
+
+    @Test
     func userDismissEntersBrowseModeUntilExplicitShow() {
         var policy = TerminalKeyboardFocusPolicy()
 

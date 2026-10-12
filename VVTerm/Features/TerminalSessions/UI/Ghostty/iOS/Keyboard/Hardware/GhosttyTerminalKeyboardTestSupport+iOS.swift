@@ -6,6 +6,7 @@
 //
 
 #if os(iOS)
+import GameController
 import UIKit
 
 #if DEBUG
@@ -259,12 +260,20 @@ extension GhosttyTerminalView {
         _ = requestKeyboardFocus(for: .hardwareKeyboard)
     }
 
+    func keyboardUITestPostHardwareKeyboardConnected() {
+        // Exercise the real observer, then keep its result stable while the
+        // simulator continues to emit its own connection events.
+        keyboardUITestHardwareKeyboardOverride = nil
+        NotificationCenter.default.post(name: .GCKeyboardDidConnect, object: nil)
+        keyboardUITestHardwareKeyboardOverride = hasHardwareKeyboardAttached
+    }
+
     func keyboardUITestSetHardwareKeyboardAttached(_ attached: Bool) {
         keyboardUITestHardwareKeyboardOverride = attached
         let previousInputConfiguration = terminalInputConfiguration
         if setHardwareKeyboardAttached(attached) {
-            notifyKeyboardBrowseModeChange(
-                previousInputConfiguration: previousInputConfiguration
+            reloadTerminalInputViews(
+                ifChangedFrom: previousInputConfiguration
             )
         }
         if attached {

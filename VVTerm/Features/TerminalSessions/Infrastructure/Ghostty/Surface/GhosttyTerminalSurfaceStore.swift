@@ -154,6 +154,7 @@ extension GhosttyTerminalView: TerminalSurface {
         onWindowAttachmentChange = callbacks?.windowAttachmentChanged
         onTerminalDirectTouch = callbacks?.directTouch
         onKeyboardAccessoryHideRequested = callbacks?.keyboardAccessoryHideRequested
+        onHardwareKeyboardAttachmentChange = callbacks?.hardwareKeyboardAttachmentChanged
         onFindNavigatorVisibilityChange = callbacks?.findNavigatorVisibilityChanged
     }
     #endif

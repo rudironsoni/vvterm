@@ -124,6 +124,12 @@ extension GhosttyTerminalView {
         requestKeyboardFocus(for: .explicitUserRequest)
     }
 
+    func setSoftwareKeyboardHidden(_ hidden: Bool) {
+        let previousInputConfiguration = terminalInputConfiguration
+        keyboardFocusPolicy.setSoftwareKeyboardHidden(hidden)
+        reloadTerminalInputViews(ifChangedFrom: previousInputConfiguration)
+    }
+
     @discardableResult
     func requestKeyboardFocus(for reason: TerminalKeyboardFocusReason) -> Bool {
         let reasonDescription = String(describing: reason)
@@ -150,8 +156,8 @@ extension GhosttyTerminalView {
         let previousInputConfiguration = terminalInputConfiguration
         guard keyboardFocusPolicy.requestFocus(for: reason) else { return false }
         clearNativeSelectionStateForTerminalInput()
-        notifyKeyboardBrowseModeChange(
-            previousInputConfiguration: previousInputConfiguration
+        reloadTerminalInputViews(
+            ifChangedFrom: previousInputConfiguration
         )
         return true
     }
@@ -159,8 +165,8 @@ extension GhosttyTerminalView {
     func dismissKeyboardForUser(suppressDirectTouchRefocus: Bool = false) {
         let previousInputConfiguration = terminalInputConfiguration
         keyboardFocusPolicy.dismissForUser()
-        notifyKeyboardBrowseModeChange(
-            previousInputConfiguration: previousInputConfiguration
+        reloadTerminalInputViews(
+            ifChangedFrom: previousInputConfiguration
         )
         if suppressDirectTouchRefocus {
             suppressDirectTouchKeyboardFocusUntil = Date().addingTimeInterval(0.35)
@@ -177,8 +183,8 @@ extension GhosttyTerminalView {
         keyboardFocusPolicy.dismissForUser()
         refreshHardwareKeyboardAttachmentFromSystem()
         clearNativeSelectionStateForTerminalInput()
-        notifyKeyboardBrowseModeChange(
-            previousInputConfiguration: previousInputConfiguration
+        reloadTerminalInputViews(
+            ifChangedFrom: previousInputConfiguration
         )
         return becomeFirstResponder()
     }
@@ -255,15 +261,6 @@ extension GhosttyTerminalView {
             reloadTerminalInputViewsIfActive()
         }
         logKeyboardLifecycle("accessory.suppression.changed", detail: "suppressed=\(suppressed)")
-    }
-
-    func notifyKeyboardBrowseModeChange(
-        previousInputConfiguration: TerminalInputConfiguration
-    ) {
-        onKeyboardBrowseModeChange?(keyboardFocusPolicy.isBrowsing)
-        if previousInputConfiguration != terminalInputConfiguration {
-            reloadTerminalInputViewsIfActive()
-        }
     }
 
     /// Tears the input session down and rebuilds it across runloop turns.

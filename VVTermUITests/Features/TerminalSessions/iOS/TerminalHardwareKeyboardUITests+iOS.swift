@@ -102,7 +102,7 @@ final class TerminalHardwareKeyboardUITests: TerminalKeyboardUITestCase {
         wait(for: diagnostics, labelContaining: "accessoryAttached=true", timeout: 5, diagnostics: diagnosticsText(in: app))
         assertSingleKeyboardRepair(since: firstRestoreBaseline, in: app)
 
-        app.buttons["vvterm.keyboardTest.geometry.hidden"].tap()
+        app.buttons["vvterm.keyboardTest.geometry.systemHide"].tap()
         wait(for: diagnostics, labelContaining: "keyboardForced=true", timeout: 5, diagnostics: diagnosticsText(in: app))
         wait(for: diagnostics, labelContaining: "browse=false", timeout: 5, diagnostics: diagnosticsText(in: app))
         wait(for: diagnostics, labelContaining: "keyboardVisible=false", timeout: 5, diagnostics: diagnosticsText(in: app))

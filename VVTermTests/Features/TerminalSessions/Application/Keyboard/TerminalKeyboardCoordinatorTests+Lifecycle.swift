@@ -211,7 +211,9 @@ extension TerminalKeyboardCoordinatorTests {
             #expect(coordinator.isUserHidden)
             #expect(session.snapshot.isKeyboardInBrowseMode)
             #expect(session.snapshot.isSoftwareKeyboardSuppressed)
-            #expect(session.focusWithoutSoftwareKeyboardCount == 1)
+            #expect(session.focusWithoutSoftwareKeyboardCount == 0)
+            #expect(session.releaseCount == 0)
+            #expect(session.snapshot.isSoftwareInputActive)
             #expect(session.rebuildCount == 0)
         }
     

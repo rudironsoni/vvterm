@@ -38,7 +38,7 @@ final class TerminalKeyboardInputSessionSpy: TerminalKeyboardInputSession {
     func acquireTerminalInput() -> Bool {
         acquireCount += 1
         onAcquire?()
-        let result = acquireResults.isEmpty ? true : acquireResults.removeFirst()
+        let result = acquireResults.isEmpty ? !snapshot.isKeyboardInBrowseMode : acquireResults.removeFirst()
         let observed = acquireObservedStates.isEmpty ? result : acquireObservedStates.removeFirst()
         snapshot.isFirstResponder = observed
         snapshot.isSoftwareInputActive = observed
@@ -72,6 +72,14 @@ final class TerminalKeyboardInputSessionSpy: TerminalKeyboardInputSession {
         snapshot.isSoftwareKeyboardSuppressed = true
         snapshot.isKeyboardInBrowseMode = true
         return true
+    }
+
+    func setSoftwareKeyboardHidden(_ hidden: Bool) {
+        let wasHidden = snapshot.isKeyboardInBrowseMode
+        snapshot.isKeyboardInBrowseMode = hidden
+        if hidden || wasHidden {
+            snapshot.isSoftwareKeyboardSuppressed = hidden || snapshot.hasHardwareKeyboardAttached
+        }
     }
 
     private(set) var inputAcquisitionAllowed = true

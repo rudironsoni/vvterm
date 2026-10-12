@@ -243,7 +243,8 @@ extension TerminalKeyboardCoordinatorTests {
             await drainMainQueue()
 
             #expect(coordinator.isUserHidden)
-            #expect(session.focusWithoutSoftwareKeyboardCount == 1)
+            #expect(session.focusWithoutSoftwareKeyboardCount == 0)
+            #expect(session.snapshot.isSoftwareInputActive)
             #expect(session.snapshot.isKeyboardInBrowseMode)
             #expect(session.snapshot.isSoftwareKeyboardSuppressed)
             #expect(session.forceSoftwareKeyboardCount == 0)
@@ -259,6 +260,43 @@ extension TerminalKeyboardCoordinatorTests {
     
             coordinator.userRequestedShow()
             #expect(!coordinator.isUserHidden)
+        }
+
+        @Test
+        @MainActor
+        func returningToHiddenPaneAfterShowingAnotherPaneRestoresInput() async {
+            let firstID = UUID(), secondID = UUID()
+            let first = TerminalKeyboardInputSessionSpy()
+            let second = TerminalKeyboardInputSessionSpy()
+            second.snapshot.isFirstResponder = false
+            second.snapshot.isSoftwareInputActive = false
+            let coordinator = makeTerminalKeyboardCoordinator()
+            coordinator.terminalProvider = { $0 == firstID ? first : second }
+            for id in [firstID, secondID] {
+                coordinator.setPaneInputEligible(true, for: id)
+                coordinator.setWindowAttached(true, for: id)
+            }
+            coordinator.setViewActive(true)
+            coordinator.setActivePane(firstID)
+            await drainMainQueue()
+            coordinator.userRequestedHide()
+            await drainMainQueue()
+            #expect(first.snapshot.isKeyboardInBrowseMode)
+
+            coordinator.setActivePane(secondID)
+            await drainMainQueue()
+            first.snapshot.isFirstResponder = false
+            first.snapshot.isSoftwareInputActive = false
+            #expect(second.snapshot.isKeyboardInBrowseMode)
+            coordinator.userRequestedShow()
+            await drainMainQueue()
+            #expect(!coordinator.isUserHidden)
+
+            coordinator.setActivePane(firstID)
+            await drainMainQueue()
+            #expect(first.snapshot.isSoftwareInputActive)
+            #expect(!first.snapshot.isKeyboardInBrowseMode)
+            #expect(first.forceSoftwareKeyboardCount == 0)
         }
     
     }

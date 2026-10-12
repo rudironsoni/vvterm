@@ -303,7 +303,8 @@ class GhosttyTerminalView: UIView {
     var configReloadObserver: NSObjectProtocol?
     var inputModeObserver: NSObjectProtocol?
     var hardwareKeyboardObservers: [NSObjectProtocol] = []
-    var hasHardwareKeyboardAttached = false
+    var hardwareKeyboardAttachment = HardwareKeyboardAttachment.notDetected
+    var hasHardwareKeyboardAttached: Bool { hardwareKeyboardAttachment.isAttached }
 
     // MARK: - Text Input (for spacebar cursor control)
     var textInputModel = TerminalTextInputModel()
@@ -481,7 +482,7 @@ class GhosttyTerminalView: UIView {
     /// Reports terminal touches; isFocusTap is true for the plain
     /// tap-to-focus gesture, which also restores a user-hidden keyboard.
     var onTerminalDirectTouch: ((_ isFocusTap: Bool) -> Void)?
-    var onKeyboardBrowseModeChange: ((Bool) -> Void)?
+    var onHardwareKeyboardAttachmentChange: (() -> Void)?
     var onKeyboardAccessoryHideRequested: (() -> Void)?
     var onFindNavigatorVisibilityChange: ((Bool) -> Void)?
     var findNavigatorLifecycle = TerminalFindNavigatorLifecycle()

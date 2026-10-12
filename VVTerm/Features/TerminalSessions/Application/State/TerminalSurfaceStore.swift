@@ -20,6 +20,7 @@ struct TerminalSurfaceLifecycleCallbacks {
     let windowAttachmentChanged: (Bool) -> Void
     let directTouch: (_ isFocusTap: Bool) -> Void
     let keyboardAccessoryHideRequested: () -> Void
+    let hardwareKeyboardAttachmentChanged: () -> Void
     let findNavigatorVisibilityChanged: (Bool) -> Void
 }
 #endif

@@ -67,6 +67,7 @@ protocol TerminalKeyboardInputSession: AnyObject {
     func forceSoftwareKeyboardInput() -> Bool
     @discardableResult
     func focusTerminalInputWithoutShowingSoftwareKeyboard() -> Bool
+    func setSoftwareKeyboardHidden(_ hidden: Bool)
     func setTerminalInputAcquisitionAllowed(_ allowed: Bool)
     func releaseTerminalInput()
     func releaseTerminalInputForReacquisition(completion: @escaping () -> Void)
@@ -230,7 +231,14 @@ final class TerminalKeyboardCoordinator: ObservableObject {
         var inputMode: TerminalInputMode = .direct
     }
 
-    @Published private(set) var isUserHidden = false
+    private enum KeyboardVisibilityIntent {
+        case automatic
+        case userHidden
+        case observedHidden
+    }
+
+    @Published private var keyboardVisibilityIntent = KeyboardVisibilityIntent.automatic
+    var isUserHidden: Bool { keyboardVisibilityIntent != .automatic }
     /// One source of truth for software-keyboard visibility and geometry.
     /// Layout consumers convert the associated screen-space frame into their
     /// own window before using it.
@@ -473,7 +481,26 @@ final class TerminalKeyboardCoordinator: ObservableObject {
             explicitPresentationRecovery = nil
         }
         activePaneId = paneId
+        if let paneId { hardwareKeyboardAttachmentDidChange(for: paneId) }
         markDirty(reason: "activePane")
+    }
+
+    func hardwareKeyboardAttachmentDidChange(for paneId: UUID) {
+        guard activePaneId == paneId, let terminal = activeTerminal else { return }
+        let snapshot = terminal.keyboardCoordinatorDiagnosticSnapshot()
+        if activeInputMode == .direct, snapshot.hasHardwareKeyboardAttached {
+            // Native composer notifications own chat keyboard intent and geometry.
+            // A delayed attachment must correct an inferred hide, while an
+            // explicit user hide remains authoritative.
+            if keyboardVisibilityIntent == .observedHidden {
+                keyboardVisibilityIntent = .automatic
+            }
+            if snapshot.isSoftwareKeyboardSuppressed {
+                cancelPresentationVerify()
+                setSoftwareKeyboardPresentation(.hidden, terminal: terminal)
+            }
+        }
+        markDirty(reason: "hardwareKeyboardAttachment")
     }
 
     /// The pane identity can stay stable while SwiftUI replaces its platform
@@ -805,13 +832,16 @@ final class TerminalKeyboardCoordinator: ObservableObject {
     }
 
     func userRequestedHide() {
+        hideSoftwareKeyboard(intent: .userHidden)
+    }
+
+    private func hideSoftwareKeyboard(intent: KeyboardVisibilityIntent) {
         pendingPresentationRequest = .none
         explicitPresentationRecovery = nil
         cancelPresentationVerify()
-        // This is an explicit command, not an idempotent state reconciliation.
         // Republish even when the stored value is already true so a route whose
         // recovery controls missed an earlier update is forced to render them.
-        isUserHidden = true
+        keyboardVisibilityIntent = intent
         markDirty(reason: "userHide")
     }
 
@@ -845,7 +875,7 @@ final class TerminalKeyboardCoordinator: ObservableObject {
         // mirroring leaves taps unable to re-present the keyboard.
         presentationRefreshAttemptCount = 0
         if isUserHidden {
-            isUserHidden = false
+            keyboardVisibilityIntent = .automatic
         }
         markDirty(reason: "userShow")
     }
@@ -1231,6 +1261,13 @@ final class TerminalKeyboardCoordinator: ObservableObject {
             return
         }
 
+        if inputSessionDesired {
+            // The coordinator owns hide/show intent. A returning pane may
+            // still hold its previous browse mode from before another pane
+            // received an explicit Keyboard command.
+            terminal.setSoftwareKeyboardHidden(inputs.userHidKeyboard)
+        }
+
         if let recovery = explicitPresentationRecovery,
            recovery.paneId == activePaneId {
             if ObjectIdentifier(terminal) != recovery.terminalIdentifier {
@@ -1275,22 +1312,6 @@ final class TerminalKeyboardCoordinator: ObservableObject {
             terminal: terminal,
             snapshot: before
         )
-        if inputSessionDesired,
-           inputs.userHidKeyboard,
-           !before.isKeyboardInBrowseMode {
-            _ = terminal.focusTerminalInputWithoutShowingSoftwareKeyboard()
-            let after = terminal.keyboardCoordinatorDiagnosticSnapshot()
-            recordLocalInputOwnershipIfNeeded(snapshot: after)
-            logCommand(
-                inputSessionDesired: inputSessionDesired,
-                keyboardPresentationDesired: keyboardPresentationDesired,
-                reason: reason,
-                inputs: inputs,
-                before: before,
-                after: after
-            )
-            return
-        }
         if keyboardPresentationDesired,
            presentationRequest.waitsForWindowOwnership,
            (!before.windowAttached || !before.windowIsKey) {
@@ -1753,10 +1774,13 @@ final class TerminalKeyboardCoordinator: ObservableObject {
                     return
                 }
             }
-            // UIKit supplies no reason. Stable local hides use the explicit browse state.
+            // Hardware can suppress even an explicitly requested software
+            // keyboard. Only an ordinary direct-input hide without hardware
+            // establishes browse intent; chat retains its native dismissal policy.
             if case let .observedDismissal(hardwareKeyboardWasAttached) = layoutSource,
-               snapshot.hasHardwareKeyboardAttached == hardwareKeyboardWasAttached {
-                self.userRequestedHide()
+               snapshot.hasHardwareKeyboardAttached == hardwareKeyboardWasAttached,
+               inputMode == .chat || !hardwareKeyboardWasAttached {
+                self.hideSoftwareKeyboard(intent: .observedHidden)
                 return
             }
             if inputMode == .chat {

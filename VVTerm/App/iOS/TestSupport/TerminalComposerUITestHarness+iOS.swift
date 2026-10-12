@@ -101,6 +101,9 @@ final class TerminalComposerUITestModel: ObservableObject {
             }
         }, keyboardAccessoryHideRequested: { [weak self] in
             self?.keyboard.userRequestedHide()
+        }, hardwareKeyboardAttachmentChanged: { [weak self] in
+            guard let self else { return }
+            self.keyboard.hardwareKeyboardAttachmentDidChange(for: self.paneID)
         }, findNavigatorVisibilityChanged: { [weak self] active in
             guard let self else { return }
             self.keyboard.setFindNavigatorActive(active, for: self.paneID)

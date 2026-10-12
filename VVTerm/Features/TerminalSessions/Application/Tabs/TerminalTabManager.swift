@@ -844,6 +844,13 @@ final class TerminalTabManager {
             keyboardAccessoryHideRequested: { [weak self] in
                 self?.keyboardCoordinator.userRequestedHide()
             },
+            hardwareKeyboardAttachmentChanged: { [weak self, weak terminal] in
+                Task { @MainActor [weak self, weak terminal] in
+                    guard let self, let terminal,
+                          self.terminalSurfaceStore.isRegistered(terminal, for: paneId) else { return }
+                    self.keyboardCoordinator.hardwareKeyboardAttachmentDidChange(for: paneId)
+                }
+            },
             findNavigatorVisibilityChanged: { [weak self, weak terminal] isVisible in
                 guard let self, let terminal,
                       self.terminalSurfaceStore.isRegistered(

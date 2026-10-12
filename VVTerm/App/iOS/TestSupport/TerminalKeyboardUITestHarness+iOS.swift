@@ -440,7 +440,11 @@ struct TerminalKeyboardUITestHarness: View {
                     .accessibilityIdentifier("vvterm.keyboardTest.hardwareFocus")
 
                     Button("HW On") {
-                        terminalView?.keyboardUITestSetHardwareKeyboardAttached(true)
+                        if Foundation.ProcessInfo.processInfo.arguments.contains("--vvterm-ui-test-hardware-connection-notification") {
+                            terminalView?.keyboardUITestPostHardwareKeyboardConnected()
+                        } else {
+                            terminalView?.keyboardUITestSetHardwareKeyboardAttached(true)
+                        }
                         if simulatesKeyboardFrames,
                            terminalView?.keyboardCoordinatorDiagnosticSnapshot()
                             .isSoftwareKeyboardSuppressed == true {
@@ -1368,6 +1372,7 @@ struct TerminalSplitKeyboardUITestHarness: View {
     @State private var secondTerminal: GhosttyTerminalView?
     @State private var firstReady = false
     @State private var secondReady = false
+    @State private var receivedInputHexByPane: [UUID: String] = [:]
     @State private var focusedPaneId = Self.firstPaneId
     @State private var keyboardVisible = false
     @State private var keyboardHeight: CGFloat = 0
@@ -1490,6 +1495,10 @@ struct TerminalSplitKeyboardUITestHarness: View {
             .frame(maxWidth: .infinity, alignment: .topTrailing)
 
             HStack(spacing: 8) {
+                Button("Hide") {
+                    keyboardCoordinator.userRequestedHide()
+                }
+                .accessibilityIdentifier("vvterm.keyboardTest.hideViaToolbar")
                 Button("Pad 32") {
                     applyContentPadding(32)
                 }
@@ -1502,6 +1511,21 @@ struct TerminalSplitKeyboardUITestHarness: View {
             }
             .buttonStyle(.borderedProminent)
             .padding(.top, 96)
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, alignment: .topTrailing)
+
+            HStack(spacing: 8) {
+                Button("Cmd [") {
+                    focusedTerminal?.keyboardUITestSendRegisteredKeyCommand("[", modifiers: .command)
+                }
+                .accessibilityIdentifier("vvterm.keyboardTest.command.previousPane")
+                Button("Cmd ]") {
+                    focusedTerminal?.keyboardUITestSendRegisteredKeyCommand("]", modifiers: .command)
+                }
+                .accessibilityIdentifier("vvterm.keyboardTest.command.nextPane")
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.top, 148)
             .padding(.trailing, 8)
             .frame(maxWidth: .infinity, alignment: .topTrailing)
         }
@@ -1546,11 +1570,21 @@ struct TerminalSplitKeyboardUITestHarness: View {
             paneId: paneId,
             surfaceIdentifier: identifier,
             surfaceLabel: label,
-            onInput: { _ in },
+            onInput: { data in
+                receivedInputHexByPane[paneId] = data.map { String(format: "%02x", $0) }.joined()
+            },
             onZoomAction: { _ in },
             onPaneKeyboardShortcut: { action in
                 paneShortcutActionCount += 1
                 lastPaneShortcutAction = String(describing: action)
+                switch action {
+                case .selectPrevious, .selectLeft, .selectAbove:
+                    focus(Self.firstPaneId)
+                case .selectNext, .selectRight, .selectBelow:
+                    focus(Self.secondPaneId)
+                default:
+                    break
+                }
             },
             onPaneFocus: {
                 focus(paneId)
@@ -1654,6 +1688,9 @@ struct TerminalSplitKeyboardUITestHarness: View {
             + " secondGridRows=\(secondSize?.rows ?? 0)"
             + " paneShortcutActions=\(paneShortcutActionCount)"
             + " lastPaneShortcutAction=\(lastPaneShortcutAction)"
+            + " userHidden=\(keyboardCoordinator.isUserHidden)"
+            + " firstInputHex=\(receivedInputHexByPane[Self.firstPaneId] ?? "none")"
+            + " secondInputHex=\(receivedInputHexByPane[Self.secondPaneId] ?? "none")"
     }
 
     private func applyContentPadding(_ points: Double) {

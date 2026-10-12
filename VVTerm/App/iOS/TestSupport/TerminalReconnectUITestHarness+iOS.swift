@@ -142,6 +142,15 @@ struct TerminalReconnectUITestHarness: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
+                if usesSplitPaneFocusHarness, let server = activeServer {
+                    Button("Create Split") {
+                        guard let tab = tabManager.sessionState.selectedTab(for: server.id) else { return }
+                        _ = tabManager.performSplitCommand(.splitDown, in: tab, hasProAccess: true)
+                    }
+                    .accessibilityIdentifier("vvterm.splitFocusTest.create")
+                    .buttonStyle(.borderedProminent)
+                    .padding(6)
+                }
                 if usesETRecoveryHarness, let server = activeServer {
                     HStack {
                         Button("Reconnect") {
@@ -231,6 +240,10 @@ struct TerminalReconnectUITestHarness: View {
 
     private var usesTabSwitchHarness: Bool {
         usesSessionsHarness || Foundation.ProcessInfo.processInfo.arguments.contains("--vvterm-ui-test-tab-switch")
+    }
+
+    private var usesSplitPaneFocusHarness: Bool {
+        Foundation.ProcessInfo.processInfo.arguments.contains("--vvterm-ui-test-split-pane-focus")
     }
 
     private var exposesKeyboardLossControl: Bool {
@@ -547,7 +560,9 @@ private struct TerminalReconnectDiagnosticsLabel: UIViewRepresentable {
 
             if configuredTerminal !== terminal {
                 configuredTerminal?.accessibilityIdentifier = nil
-                terminal.keyboardUITestSetHardwareKeyboardAttached(false)
+                terminal.keyboardUITestSetHardwareKeyboardAttached(
+                    Foundation.ProcessInfo.processInfo.arguments.contains("--vvterm-ui-test-split-pane-focus")
+                )
                 if usesKeyboardFrameSimulation {
                     if let frame = terminalReconnectVisibleKeyboardFrame(for: terminal) {
                         tabManager.keyboardCoordinator.keyboardUITestSetSoftwareKeyboardEndFrame(frame)
@@ -586,6 +601,11 @@ private struct TerminalReconnectDiagnosticsLabel: UIViewRepresentable {
                 "cwd=\(workingDirectory)",
                 "shell=\(shellId != nil)",
                 "shellId=\(shellId?.uuidString ?? "none")",
+                "focusedPaneId=\(paneId)",
+                "inputAllowed=\(terminal.terminalInputAcquisitionAllowed)",
+                "acceptsInput=\(terminal.acceptsTerminalInput)",
+                "writeCallback=\(terminal.writeCallback != nil)",
+                "presentationOwner=\(terminal.panePresentationOwner != nil)",
                 terminalDiagnostics,
                 "routeUpdates=\(TerminalRouteUITestRenderProbe.updateCount)",
             ].joined(separator: " "))

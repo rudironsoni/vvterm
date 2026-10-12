@@ -16,6 +16,7 @@ class TerminalReconnectUITestCase: XCTestCase {
     func launchProductionSSHTestHarness(
         exposesKeyboardLossControl: Bool = false,
         tabSwitching: Bool = false,
+        splitPaneFocus: Bool = false,
         preservesTerminalSize: Bool = false,
         privacyModeEnabled: Bool = false,
         chatMode: Bool = false,
@@ -44,6 +45,7 @@ class TerminalReconnectUITestCase: XCTestCase {
             "-security.lockOnBackground", "NO",
         ]
         if tabSwitching { app.launchArguments.append("--vvterm-ui-test-tab-switch") }
+        if splitPaneFocus { app.launchArguments.append("--vvterm-ui-test-split-pane-focus") }
         if repeatsKeyboardUpdates {
             app.launchArguments.append("--vvterm-ui-test-repeat-keyboard-updates")
         }

@@ -58,8 +58,8 @@ extension TerminalKeyboardCoordinatorTests {
             #expect(events.prefix(2).elementsEqual(["acquire", "release"]))
         }
 
-        @Test @MainActor
-        func nativeDismissalKeepsChatHiddenUntilExplicitShow() async {
+        @Test(arguments: [false, true]) @MainActor
+        func nativeDismissalKeepsChatHiddenUntilExplicitShow(hardwareConnectsAfterHide: Bool) async {
             let pane = UUID()
             let terminal = TerminalKeyboardInputSessionSpy()
             let composer = ComposerInputSpy()
@@ -86,12 +86,45 @@ extension TerminalKeyboardCoordinatorTests {
             await drainMainQueue()
             #expect(coordinator.isUserHidden)
             #expect(composer.keyboardHidden)
+            if hardwareConnectsAfterHide {
+                terminal.snapshot.hasHardwareKeyboardAttached = true
+                coordinator.hardwareKeyboardAttachmentDidChange(for: pane)
+            }
             coordinator.composerInputAvailabilityDidChange()
             await drainMainQueue()
+            #expect(coordinator.isUserHidden)
             #expect(composer.keyboardHidden)
             coordinator.userRequestedShow()
             await drainMainQueue()
             #expect(!composer.keyboardHidden)
+        }
+
+        @Test @MainActor
+        func hardwareAttachmentPreservesNativeChatKeyboardPresentation() async {
+            let pane = UUID()
+            let terminal = TerminalKeyboardInputSessionSpy()
+            let composer = ComposerInputSpy()
+            let coordinator = makeTerminalKeyboardCoordinator()
+            coordinator.terminalProvider = { _ in terminal }
+            coordinator.inputModeProvider = { _ in .chat }
+            coordinator.setActivePane(pane)
+            coordinator.setViewActive(true)
+            coordinator.setWindowAttached(true, for: pane)
+            coordinator.setPaneInputEligible(true, for: pane)
+            coordinator.registerComposerInput(composer, for: pane)
+            await drainMainQueue()
+            terminal.snapshot.screenFrame = CGRect(x: 0, y: 0, width: 1024, height: 1000)
+            terminal.snapshot.isSoftwareKeyboardSuppressed = true
+            let frame = CGRect(x: 0, y: 700, width: 1024, height: 300)
+            coordinator.keyboardUITestReceiveKeyboardEndFrame(frame, isLocal: true)
+
+            terminal.snapshot.hasHardwareKeyboardAttached = true
+            coordinator.hardwareKeyboardAttachmentDidChange(for: pane)
+            await drainMainQueue()
+
+            #expect(coordinator.softwareKeyboardEndFrame == frame)
+            #expect(coordinator.isSoftwareKeyboardVisible)
+            #expect(composer.active)
         }
 
         enum NativeHideInterruption: CaseIterable {

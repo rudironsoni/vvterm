@@ -83,7 +83,7 @@ extension GhosttyTerminalView {
         #endif
         onWindowAttachmentChange = nil
         onTerminalDirectTouch = nil
-        onKeyboardBrowseModeChange = nil
+        onHardwareKeyboardAttachmentChange = nil
         onKeyboardAccessoryHideRequested = nil
         onFindNavigatorVisibilityChange = nil
         onVoiceButtonTapped = nil

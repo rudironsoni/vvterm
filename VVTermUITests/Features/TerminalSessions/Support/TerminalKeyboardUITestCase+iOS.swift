@@ -114,6 +114,7 @@ class TerminalKeyboardUITestCase: XCTestCase {
         simulatesDetachedLightAccessoryHost: Bool = false,
         simulatesStaleLightAccessoryCacheOnResume: Bool = false,
         splitPaneFocus: Bool = false,
+        simulatesHardwareConnectionNotification: Bool = false,
         testsAppShortcutInputs: Bool = false,
         simulatesTerminalMetadataChurn: Bool = false,
         simulatesSelectionRedraws: Bool = false,
@@ -130,6 +131,9 @@ class TerminalKeyboardUITestCase: XCTestCase {
         ]
         if splitPaneFocus {
             app.launchArguments.append("--vvterm-ui-test-terminal-split-keyboard-harness")
+        }
+        if simulatesHardwareConnectionNotification {
+            app.launchArguments.append("--vvterm-ui-test-hardware-connection-notification")
         }
         if testsAppShortcutInputs {
             app.launchArguments.append("--vvterm-ui-test-terminal-app-shortcut-inputs")
