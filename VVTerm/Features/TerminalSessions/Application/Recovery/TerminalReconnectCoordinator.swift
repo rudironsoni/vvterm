@@ -19,7 +19,7 @@ struct TerminalReconnectAccess {
     let paneIDs: @MainActor @Sendable () -> [UUID]
     let paneIDsForServer: @MainActor @Sendable (UUID) -> [UUID]
     let networkPathBecameReady: @MainActor @Sendable (UUID) -> Void
-    let prepareTransport: @MainActor @Sendable (UUID) async -> Void
+    let prepareTransport: @MainActor @Sendable (UUID) async throws -> Void
     let startConnection: @MainActor @Sendable (UUID) -> Bool
     let failConnection: @MainActor @Sendable (UUID) -> Void
 
@@ -54,6 +54,7 @@ final class TerminalReconnectCoordinator: ObservableObject {
         case preparationStarted
         case cleanupStarted
         case cleanupCompleted
+        case cleanupFailed
         case preparationDeadline
         case waitingForNetwork
         case waitingForApplication
@@ -453,14 +454,14 @@ final class TerminalReconnectCoordinator: ObservableObject {
         paneId: UUID,
         timeout: Duration,
         sleep: @escaping Sleep,
-        prepareTransport: @escaping @MainActor @Sendable (UUID) async -> Void
+        prepareTransport: @escaping @MainActor @Sendable (UUID) async throws -> Void
     ) async -> CleanupOutcome {
         do {
             try await HardOperationDeadline.run(
                 timeout: timeout,
                 sleep: sleep,
                 operation: {
-                    await prepareTransport(paneId)
+                    try await prepareTransport(paneId)
                 }
             )
             return .completed
@@ -474,9 +475,13 @@ final class TerminalReconnectCoordinator: ObservableObject {
     }
 
     private func preparationFinished(_ attempt: Attempt, outcome: CleanupOutcome) {
-        guard outcome != .cancelled, outcome != .failed else { return }
+        guard outcome != .cancelled else { return }
         guard currentRecord(for: attempt) != nil else {
             emit(.staleResultRejected, for: attempt)
+            return
+        }
+        if outcome == .failed {
+            removeAttempt(for: attempt.paneId, event: .cleanupFailed)
             return
         }
         emit(outcome == .completed ? .cleanupCompleted : .preparationDeadline, for: attempt)
@@ -544,9 +549,13 @@ final class TerminalReconnectCoordinator: ObservableObject {
     }
 
     private func connectionDeadlineFinished(_ attempt: Attempt, outcome: CleanupOutcome) {
-        guard outcome != .cancelled, outcome != .failed else { return }
+        guard outcome != .cancelled else { return }
         guard currentRecord(for: attempt) != nil else {
             emit(.staleResultRejected, for: attempt)
+            return
+        }
+        if outcome == .failed {
+            removeAttempt(for: attempt.paneId, event: .cleanupFailed)
             return
         }
         emit(outcome == .completed ? .cleanupCompleted : .cleanupDeadline, for: attempt)

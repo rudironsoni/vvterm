@@ -205,7 +205,7 @@ struct EternalTerminalResumeCredentialStoreTests {
         #expect(EternalTerminalResumePolicy.shouldDiscardCredentials(
             after: EternalTerminalSessionFailure.sessionUnrecoverable
         ))
-        #expect(EternalTerminalResumePolicy.shouldDiscardCredentials(
+        #expect(!EternalTerminalResumePolicy.shouldDiscardCredentials(
             after: EternalTerminalSessionFailure.connectionClosed
         ))
         #expect(!EternalTerminalResumePolicy.shouldDiscardCredentials(

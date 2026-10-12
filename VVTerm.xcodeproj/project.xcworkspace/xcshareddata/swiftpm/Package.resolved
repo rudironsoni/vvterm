@@ -24,8 +24,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/wiedymi/swift-et",
       "state" : {
-        "revision" : "01b0a9f606ebf78cd8968cbdae66a1aba3e55496",
-        "version" : "0.1.7"
+        "revision" : "6b7390b412fa46c59c54311bc688dd743b014a7b"
       }
     },
     {

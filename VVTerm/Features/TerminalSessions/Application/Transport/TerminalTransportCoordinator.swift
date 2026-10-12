@@ -371,13 +371,18 @@ final class TerminalTransportCoordinator {
         }
     }
 
-    func prepareTransportForReconnect(_ paneId: UUID) async {
+    func prepareTransportForReconnect(_ paneId: UUID) async throws {
         logger.info("Reconnect transport cleanup pane=\(paneId.uuidString, privacy: .public)")
+        let runtime = registry.runtime(for: paneId)
+        if let runtime {
+            try await runtime.prepareForReconnect()
+            try Task.checkCancellation()
+            guard registry.isCurrentRuntime(runtime, for: paneId) else { return }
+        }
         registry.cancelConnectionTask(for: paneId)
         let client = registry.connectionClient(for: paneId)
         let shellId = registry.shellId(for: paneId)
         let startToken = registry.connectionStartToken(for: paneId)
-        let runtime = registry.runtime(for: paneId)
         let detachedRuntime = runtime.flatMap {
             detachEternalTerminalRuntime(for: paneId, ifOwnedBy: $0) ? $0 : nil
         }

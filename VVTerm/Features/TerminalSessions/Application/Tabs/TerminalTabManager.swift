@@ -174,7 +174,7 @@ final class TerminalTabManager {
                 self?.transportCoordinator.notifyEternalTerminalNetworkPathChanged(for: paneId)
             },
             prepareTransport: { [weak self] paneId in
-                await self?.transportCoordinator.prepareTransportForReconnect(paneId)
+                try await self?.transportCoordinator.prepareTransportForReconnect(paneId)
             },
             startConnection: { [weak self] paneId in
                 self?.startReconnectConnection(paneId) == true
@@ -216,7 +216,7 @@ final class TerminalTabManager {
                 self?.transportCoordinator.notifyEternalTerminalNetworkPathChanged(for: paneId)
             },
             prepareTransport: { [weak self] paneId in
-                await self?.transportCoordinator.prepareTransportForReconnect(paneId)
+                try await self?.transportCoordinator.prepareTransportForReconnect(paneId)
             },
             startConnection: { [weak self] paneId in
                 self?.startReconnectConnection(paneId) == true

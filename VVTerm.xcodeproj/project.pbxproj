@@ -1110,8 +1110,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/wiedymi/swift-et";
 			requirement = {
-				kind = exactVersion;
-				version = 0.1.7;
+				kind = revision;
+				revision = 6b7390b412fa46c59c54311bc688dd743b014a7b;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

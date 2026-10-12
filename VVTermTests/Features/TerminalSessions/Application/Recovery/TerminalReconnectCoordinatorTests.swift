@@ -48,6 +48,7 @@ private final class ReconnectOwnerFixture {
     var applicationIsActive = true
     var networkReadyPaneIDs: [UUID] = []
     var firstCleanupGate: ReconnectCancellationGate?
+    var cleanupFailure: EternalTerminalSessionFailure?
     #if os(macOS)
     var recoveryGate: ReconnectCancellationGate?
     var recoveryCandidates: [MacTerminalRecoveryCandidate] = []
@@ -63,6 +64,7 @@ private final class ReconnectOwnerFixture {
             prepareTransport: { [weak self] _ in
                 guard let self else { return }
                 cleanupCount += 1
+                if let cleanupFailure { throw cleanupFailure }
                 if cleanupCount == 1, let firstCleanupGate {
                     await firstCleanupGate.waitIgnoringCancellation()
                 }
@@ -92,6 +94,7 @@ private final class ReconnectOwnerFixture {
             prepareTransport: { [weak self] _ in
                 guard let self else { return }
                 cleanupCount += 1
+                if let cleanupFailure { throw cleanupFailure }
                 if cleanupCount == 1, let firstCleanupGate {
                     await firstCleanupGate.waitIgnoringCancellation()
                 }
@@ -152,6 +155,22 @@ struct TerminalReconnectCoordinatorTests {
             await Task.yield()
         }
         return await condition()
+    }
+
+    @Test
+    func failedPreparationKeepsTheTransportAndClearsTheAttempt() async {
+        let paneId = UUID()
+        let fixture = ReconnectOwnerFixture()
+        fixture.facts[paneId] = .init(connectionState: .disconnected, hasEstablishedConnection: true)
+        fixture.cleanupFailure = .resumeState(message: "Test save failed", discardStoredState: false)
+        let coordinator = makeCoordinator(fixture: fixture)
+
+        #expect(coordinator.request(for: paneId, requiresReadyNetwork: true))
+        #expect(await eventually { coordinator.attempt(for: paneId) == nil })
+        #expect(fixture.startCount == 0)
+        #expect(fixture.failureCount == 0)
+        #expect(fixture.events.contains(.cleanupFailed))
+        coordinator.reset()
     }
 
     @Test

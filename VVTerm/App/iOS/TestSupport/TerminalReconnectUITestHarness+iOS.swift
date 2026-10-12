@@ -16,6 +16,7 @@ struct TerminalReconnectUITestHarness: View {
     private enum FixtureError: LocalizedError {
         case missingUsername
         case invalidPrivateKey
+        case missingETConfiguration
 
         var errorDescription: String? {
             switch self {
@@ -23,6 +24,8 @@ struct TerminalReconnectUITestHarness: View {
                 "Missing loopback SSH username"
             case .invalidPrivateKey:
                 "Invalid loopback SSH private key"
+            case .missingETConfiguration:
+                "Missing loopback ET port or startup command"
             }
         }
     }
@@ -139,6 +142,22 @@ struct TerminalReconnectUITestHarness: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
+                if usesETRecoveryHarness, let server = activeServer {
+                    HStack {
+                        Button("Reconnect") {
+                            guard let paneId = tabManager.sessionState.selectedTab(for: server.id)?.focusedPaneId else { return }
+                            _ = tabManager.reconnectCoordinator.request(for: paneId, requiresReadyNetwork: false)
+                        }
+                        .accessibilityIdentifier("vvterm.etRecoveryTest.reconnect")
+                        Button("Send Input") {
+                            guard let paneId = tabManager.sessionState.selectedTab(for: server.id)?.focusedPaneId else { return }
+                            tabManager.transportCoordinator.sendEternalTerminalInput(Data("x".utf8), for: paneId)
+                        }
+                        .accessibilityIdentifier("vvterm.etRecoveryTest.input")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .padding(6)
+                }
                 if usesColdRelaunchHarness {
                     Text(coldRelaunchDiagnostics)
                         .font(.caption2.monospaced())
@@ -204,6 +223,10 @@ struct TerminalReconnectUITestHarness: View {
 
     private var usesSessionsHarness: Bool {
         Foundation.ProcessInfo.processInfo.arguments.contains("--vvterm-ui-test-sessions")
+    }
+
+    private var usesETRecoveryHarness: Bool {
+        Foundation.ProcessInfo.processInfo.arguments.contains("--vvterm-ui-test-et-recovery")
     }
 
     private var usesTabSwitchHarness: Bool {
@@ -306,6 +329,15 @@ struct TerminalReconnectUITestHarness: View {
         do {
             let username = try fixtureUsername()
             let privateKey = try fixturePrivateKey()
+            let sshPort = usesETRecoveryHarness ? Self.fixtureDefaults.integer(forKey: "etSSHPort") : Self.sshPort
+            let etPort = usesETRecoveryHarness ? Self.fixtureDefaults.integer(forKey: "etPort") : 2022
+            let startupCommand = usesETRecoveryHarness
+                ? Self.fixtureDefaults.string(forKey: "etRecoveryStartupCommand") : nil
+            if usesETRecoveryHarness {
+                guard (1...65_535).contains(sshPort), (1...65_535).contains(etPort), startupCommand?.isEmpty == false else {
+                    throw FixtureError.missingETConfiguration
+                }
+            }
             // Finish startup loading before installing the fixture collection.
             // Otherwise that load can remove its server after the route mounts.
             await serverManager.loadData()
@@ -315,21 +347,23 @@ struct TerminalReconnectUITestHarness: View {
                 environment: .development,
                 name: "DEV-199 Loopback",
                 host: Self.sshHost,
-                port: Self.sshPort,
+                port: sshPort,
+                eternalTerminalPort: etPort,
                 username: username,
-                connectionMode: .standard,
+                connectionMode: usesETRecoveryHarness ? .eternalTerminal : .standard,
                 authMethod: .sshKey,
-                remoteSessionEnabledOverride: false
+                remoteSessionEnabledOverride: false,
+                remoteShellStartupCommand: startupCommand
             )
 
             if !usesColdRelaunchHarness || seedsColdRelaunchHarness {
                 await tabManager.resetForTesting()
             }
-            KnownHostsManager.shared.remove(host: Self.sshHost, port: Self.sshPort)
+            KnownHostsManager.shared.remove(host: Self.sshHost, port: sshPort)
             if let fingerprint = Self.fixtureDefaults.string(forKey: "sshHostFingerprint") {
                 KnownHostsManager.shared.save(entry: .init(
                     host: Self.sshHost,
-                    port: Self.sshPort,
+                    port: sshPort,
                     fingerprint: fingerprint,
                     keyType: Self.fixtureDefaults.integer(forKey: "sshHostKeyType"),
                     addedAt: Date(),

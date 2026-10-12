@@ -73,13 +73,13 @@ nonisolated enum EternalTerminalResumePolicy {
         after failure: EternalTerminalSessionFailure
     ) -> Bool {
         return switch failure {
-        case .invalidKey, .connectionClosed, .sessionUnrecoverable:
+        case .invalidKey, .sessionUnrecoverable:
             true
         case .resumeState(_, let discardStoredState):
             discardStoredState
         case .bootstrapSSH, .bootstrapResponse, .malformedBootstrapCredentials,
              .transport, .protocolMismatch, .disconnectedBufferFull,
-             .connectionInProgress, .applicationSuspended, .client, .unknown:
+             .connectionInProgress, .connectionClosed, .applicationSuspended, .client, .unknown:
             false
         }
     }
@@ -377,7 +377,38 @@ final class EternalTerminalRuntime {
     }
 
     func resumeFromApplicationBackground() async {
-        await session?.resumeFromApplicationBackground()
+        guard let session, isCurrentOwner else { return }
+        await session.resumeFromApplicationBackground()
+        guard isCurrentOwner else { return }
+        // Resume writes before checking a socket that may have become stale
+        // during suspension. ET restores the existing reliable byte stream.
+        await session.notifyNetworkPathChanged()
+    }
+
+    func prepareForReconnect() async throws {
+        guard let session else { return }
+        do {
+            // The last background snapshot can predate input, heartbeats, and
+            // output on this live session. Freeze writes and save before detach.
+            try await session.prepareForApplicationBackground { [weak self] in
+                self?.isCurrentOwner == true
+            }
+            try Task.checkCancellation()
+        } catch EternalTerminalSessionFailure.connectionClosed {
+            // An ended client no longer has protocol state to save.
+            return
+        } catch is CancellationError {
+            if isCurrentOwner {
+                await session.resumeFromApplicationBackground()
+            }
+            throw CancellationError()
+        } catch {
+            if isCurrentOwner {
+                await session.resumeFromApplicationBackground()
+            }
+            publishFailure(error, host: server.host, port: server.eternalTerminalPort)
+            throw error
+        }
     }
 
     func close() async {
@@ -468,6 +499,9 @@ final class EternalTerminalRuntime {
                         pixelHeight: work.pixelSize?.height
                     )
                     self?.finishConnectedState(work)
+                } catch EternalTerminalSessionFailure.applicationSuspended {
+                    // Background preparation can pause writes after the
+                    // connected event. Foreground verification reapplies size.
                 } catch {
                     self?.publishFailure(error, host: host, port: port)
                 }
