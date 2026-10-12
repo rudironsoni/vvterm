@@ -1078,6 +1078,10 @@ struct TerminalKeyboardUITestHarness: View {
             + " outputBursts=\(completedOutputBurstCount)"
             + " selectionOutputRows=\(selectionOutputRows) selectionRedraws=\(selectionRedraws)"
             + " linkCellHeight=\(terminalView.cellSize.height)"
+            + " scrollOffsetY=\(metricText(terminalView.terminalScrollView.contentOffset.y))"
+            + " scrollMaximumY=\(metricText(terminalView.terminalScrollView.contentSize.height - terminalView.terminalScrollView.bounds.height))"
+            + " scrollRow=\(terminalView.scrollbar?.offset ?? 0)"
+            + " scrollDecelerating=\(terminalView.terminalScrollView.isDecelerating)"
             + " selectionCellWidth=\(terminalView.cellSize.width)"
             + " openedLink=\(openedLink?.absoluteString ?? "none")"
             + " findPresented=\(terminalView.isFindNavigatorVisible)"
@@ -1146,6 +1150,11 @@ struct TerminalKeyboardUITestHarness: View {
         manager.updatePaneState(Self.paneId, connectionState: .connected)
         manager.keyboardCoordinator.setActivePane(Self.paneId)
         manager.keyboardCoordinator.setViewActive(true)
+        if Foundation.ProcessInfo.processInfo.arguments.contains("--vvterm-ui-test-terminal-scroll-history") {
+            let history = (0..<200).map { "VVTerm scroll row \($0)" }.joined(separator: "\r\n") + "\r\n"
+            _ = await terminalView.receiveTerminalOutput(Data(history.utf8))
+            manager.keyboardCoordinator.userRequestedHide()
+        }
         if seedsTerminalSelectionFixture || simulatesTerminalMouseCapture {
             _ = await terminalView.receiveTerminalOutput(Self.touchSelectionFixture)
         }
@@ -1329,6 +1338,7 @@ struct TerminalKeyboardUITestHarness: View {
         }
 
         let terminalFrame = terminal.convert(terminal.bounds, to: window)
+        let terminalScreenFrame = window.convert(terminalFrame, to: window.screen.coordinateSpace)
         let visibleTerminalFrame = terminalFrame.intersection(window.bounds)
         let cursorFrame = terminal.convert(terminal.keyboardAvoidanceCursorRect(), to: window)
         let keyboardTop = keyboardFrame.map {
@@ -1337,6 +1347,12 @@ struct TerminalKeyboardUITestHarness: View {
         return [
             "preserveSize=\(preservesTerminalSize)",
             "terminalTop=\(metricText(terminalFrame.minY))",
+            "terminalLeft=\(metricText(terminalFrame.minX))",
+            "terminalWidth=\(metricText(terminalFrame.width))",
+            "terminalScreenLeft=\(metricText(terminalScreenFrame.minX))",
+            "terminalScreenTop=\(metricText(terminalScreenFrame.minY))",
+            "terminalScreenWidth=\(metricText(terminalScreenFrame.width))",
+            "terminalScreenHeight=\(metricText(terminalScreenFrame.height))",
             "terminalBottom=\(metricText(terminalFrame.maxY))",
             "terminalHeight=\(metricText(terminalFrame.height))",
             "visibleTerminalHeight=\(metricText(visibleTerminalFrame.isNull ? 0 : visibleTerminalFrame.height))",
@@ -1758,8 +1774,7 @@ struct TerminalKeyboardHarnessRepresentable: UIViewRepresentable {
 
 final class TerminalKeyboardHarnessContainerView: UIView {
     private(set) weak var terminalView: GhosttyTerminalView?
-    // This retained sibling must track every terminal layout change so XCUITest
-    // gets exact terminal geometry without becoming the UIKit hit-test owner.
+    // This non-interactive anchor keeps pinch touches clear of harness controls.
     private let gestureSurface: UIView = {
         let view = UIView()
         view.backgroundColor = .clear
@@ -1886,7 +1901,12 @@ final class TerminalKeyboardHarnessContainerView: UIView {
         super.layoutSubviews()
         guard let terminalView else { return }
         terminalView.frame = bounds
-        gestureSurface.frame = terminalView.frame
+        gestureSurface.frame = CGRect(
+            x: terminalView.frame.minX,
+            y: terminalView.frame.minY + 300,
+            width: min(100, terminalView.frame.width),
+            height: max(0, min(200, terminalView.frame.height - 320))
+        )
         if bounds.width > 0, bounds.height > 0 {
             terminalView.sizeDidChange(bounds.size)
         }

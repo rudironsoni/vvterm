@@ -41,20 +41,15 @@ extension GhosttyTerminalView: UIGestureRecognizerDelegate {
         if gestureRecognizer == pinchRecognizer {
             return canHandlePinchZoom
         }
-        if gestureRecognizer == scrollRecognizer {
-            guard shouldAllowScrollGesture(gestureRecognizer, touchType: touch.type) else {
-                return false
-            }
-            if nativeSelectionInteractionActive || nativeSelectedRange != nil {
-                return false
-            }
-        }
         return true
     }
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if gestureRecognizer == scrollRecognizer {
-            return shouldAllowScrollGesture(gestureRecognizer, touchType: .indirectPointer)
+            return canInteractWithTerminalContent
+                && !hasActiveSelectionInteraction
+                && !isPinchingTerminalZoom
+                && shouldAllowScrollGesture(gestureRecognizer, touchType: .indirectPointer)
         }
 
         return true
@@ -106,14 +101,6 @@ extension GhosttyTerminalView {
             hasActiveTerminalPointerButton: activePointerButton != nil
         )
     }
-
-    func shouldAllowActiveScrollGesture(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        TerminalPointerInputRoutingPolicy.shouldAllowScrollGesture(
-            isIndirectPointer: !gestureRecognizer.buttonMask.isEmpty || activePointerButton != nil,
-            isPointerButtonPressed: !gestureRecognizer.buttonMask.isEmpty,
-            hasActiveTerminalPointerButton: activePointerButton != nil
-        )
-    }
 }
 
 extension GhosttyTerminalView {
@@ -121,25 +108,12 @@ extension GhosttyTerminalView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
+        if terminalScrollView.isDecelerating { stopTerminalScrolling() }
         if handleIndirectPointerTouchesBegan(touches, event: event) {
             return
         }
-        let location = touches.first?.location(in: self)
-        if nativeSelectionLifecycle.interactionIsActive {
-            return
-        }
-        if nativeSelectionLifecycle.keepsFirstResponder {
-            if let location, isPointOnNativeSelectionHandleHitArea(location) {
-                return
-            }
-            guard shouldAutoFocusKeyboard(for: touches) else { return }
-            notifyDirectTouchOnTerminal(isFocusTap: true)
-            return
-        }
-        if let location, routeLink(at: location, activate: false) { return }
-        // Non-link taps focus the keyboard without selecting terminal text.
-        notifyDirectTouchOnTerminal(isFocusTap: true)
-        requestKeyboardFocus(for: .directTouch)
+        // A drag must not open the keyboard or resize the terminal. Only a
+        // completed tap below acquires text input.
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -176,9 +150,13 @@ extension GhosttyTerminalView {
             return
         }
 
+        if Date() >= suppressDirectTouchKeyboardFocusUntil {
+            notifyDirectTouchOnTerminal(isFocusTap: true)
+            requestKeyboardFocus(for: .directTouch)
+        }
+
         // Local selection and links remain available while Chat owns text input.
         guard terminalInputAcquisitionAllowed else {
-            notifyDirectTouchOnTerminal(isFocusTap: true)
             return
         }
 
@@ -192,7 +170,7 @@ extension GhosttyTerminalView {
         }
 
         let position = ghosttyPoint(recognizer.location(in: self))
-        stopMomentumScrolling()
+        stopTerminalScrolling()
         surface.sendMousePos(.init(x: position.x, y: position.y, mods: []))
         surface.sendMouseButton(.init(action: .press, button: .left, mods: []))
         surface.sendMouseButton(.init(action: .release, button: .left, mods: []))
@@ -212,7 +190,7 @@ extension GhosttyTerminalView {
         }
         guard linkHoverState.withLock({ $0 }) else { return false }
         if activate {
-            stopMomentumScrolling()
+            stopTerminalScrolling()
             surface.sendMouseButton(.init(action: .press, button: .left, mods: .super))
             surface.sendMouseButton(.init(action: .release, button: .left, mods: .super))
             requestRender()
@@ -266,7 +244,7 @@ extension GhosttyTerminalView {
 
         activePointerButton = button
         if button == .left {
-            stopMomentumScrolling()
+            stopTerminalScrolling()
             updateSelectionAutoscroll(location: location, mods: mods)
         } else {
             stopSelectionAutoscroll()
@@ -334,46 +312,6 @@ extension GhosttyTerminalView {
         }
 
         requestRender()
-    }
-
-    @objc func handlePanGesture(_ recognizer: UIPanGestureRecognizer) {
-        guard let surface = surface else { return }
-        guard shouldAllowActiveScrollGesture(recognizer) else { return }
-        if isPinchingTerminalZoom { return }
-
-        let translation = recognizer.translation(in: self)
-        let location = recognizer.location(in: self)
-
-        switch recognizer.state {
-        case .began:
-            isScrolling = true
-            stopMomentumScrolling()
-        case .changed:
-            // Update mouse position so TUI apps receive wheel events with coordinates.
-            let pos = ghosttyPoint(location)
-            surface.sendMousePos(.init(x: pos.x, y: pos.y, mods: []))
-            // Send scroll delta directly with increased multiplier for snappy feel
-            let scrollEvent = Ghostty.Input.MouseScrollEvent(
-                x: Double(translation.x) * Self.scrollMultiplier,
-                y: Double(translation.y) * Self.scrollMultiplier,
-                mods: Ghostty.Input.ScrollMods(precision: true, momentum: .none)
-            )
-            surface.sendMouseScroll(scrollEvent)
-            requestRender()
-
-            // Reset translation so we get delta on next call
-            recognizer.setTranslation(.zero, in: self)
-        case .ended:
-            isScrolling = false
-            // Get velocity for momentum scrolling
-            let velocity = recognizer.velocity(in: self)
-            startMomentumScrolling(velocity: velocity)
-        case .cancelled, .failed:
-            isScrolling = false
-            stopMomentumScrolling()
-        default:
-            break
-        }
     }
 
     func updateSelectionAutoscroll(location: CGPoint, mods: Ghostty.Input.Mods) {
@@ -480,7 +418,7 @@ extension GhosttyTerminalView {
         surface.sendMouseScroll(
             Ghostty.Input.MouseScrollEvent(
                 x: 0,
-                y: decision.scrollDelta,
+                y: decision.scrollDelta * Double(contentScaleFactor),
                 mods: Ghostty.Input.ScrollMods(precision: true, momentum: .none)
             )
         )
@@ -488,72 +426,8 @@ extension GhosttyTerminalView {
         requestRender()
     }
 
-    func startMomentumScrolling(velocity: CGPoint) {
-        // Only start momentum if velocity is significant
-        guard abs(velocity.y) > Self.minimumMomentumVelocity || abs(velocity.x) > Self.minimumMomentumVelocity else {
-            sendMomentumEnd()
-            return
-        }
-
-        // Scale velocity for momentum (divide by 60 for per-frame amount at 60fps)
-        momentumVelocity = CGPoint(
-            x: velocity.x / 60.0 * Self.scrollMultiplier * 0.5,
-            y: velocity.y / 60.0 * Self.scrollMultiplier * 0.5
-        )
-
-        // Create display link for smooth animation
-        momentumPhase = .began
-        momentumDisplayLink = CADisplayLink(target: self, selector: #selector(momentumScrollTick))
-        momentumDisplayLink?.add(to: .main, forMode: .common)
-    }
-
-    @objc func momentumScrollTick() {
-        guard let surface = surface else {
-            stopMomentumScrolling()
-            return
-        }
-
-        // Apply deceleration
-        momentumVelocity.x *= Self.momentumDeceleration
-        momentumVelocity.y *= Self.momentumDeceleration
-
-        // Stop if velocity is very low
-        if abs(momentumVelocity.x) < 0.5 && abs(momentumVelocity.y) < 0.5 {
-            stopMomentumScrolling()
-            sendMomentumEnd()
-            return
-        }
-
-        // Send momentum scroll event (began -> changed)
-        let scrollEvent = Ghostty.Input.MouseScrollEvent(
-            x: Double(momentumVelocity.x),
-            y: Double(momentumVelocity.y),
-            mods: Ghostty.Input.ScrollMods(
-                precision: true,
-                momentum: momentumPhase == .began ? .began : .changed
-            )
-        )
-        surface.sendMouseScroll(scrollEvent)
-        momentumPhase = .changed
-        requestRender()
-    }
-
-    func stopMomentumScrolling() {
-        momentumDisplayLink?.invalidate()
-        momentumDisplayLink = nil
-        momentumVelocity = .zero
-        momentumPhase = .none
-    }
-
-    func sendMomentumEnd() {
-        guard let surface = surface else { return }
-        let endEvent = Ghostty.Input.MouseScrollEvent(
-            x: 0,
-            y: 0,
-            mods: Ghostty.Input.ScrollMods(precision: true, momentum: .ended)
-        )
-        surface.sendMouseScroll(endEvent)
-        momentumPhase = .none
+    func stopTerminalScrolling() {
+        terminalScrollView.stopScrolling()
     }
 
     @objc func handlePinchGesture(_ recognizer: UIPinchGestureRecognizer) {
@@ -566,7 +440,7 @@ extension GhosttyTerminalView {
         case .began:
             isPinchingTerminalZoom = true
             pinchReferenceScale = recognizer.scale
-            stopMomentumScrolling()
+            stopTerminalScrolling()
             showZoomIndicator()
         case .changed:
             guard isPinchingTerminalZoom else { return }

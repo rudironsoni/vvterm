@@ -196,6 +196,7 @@ extension GhosttyTerminalView {
 
     func showFindNavigator(prefillingSelectedText: Bool = false) {
         guard usesNativeTouchSelection else { return }
+        stopTerminalScrolling()
         if #available(iOS 16.0, *) {
             presentFindNavigator(prefillingSelectedText: prefillingSelectedText)
         }
@@ -272,6 +273,7 @@ extension GhosttyTerminalView {
 
     func handleGhosttySearchStarted(needle: String) {
         guard usesNativeTouchSelection else { return }
+        stopTerminalScrolling()
         ghosttyFindReportedTotal = 0
         ghosttyFindReportedSelectedIndex = nil
         if #available(iOS 16.0, *) {

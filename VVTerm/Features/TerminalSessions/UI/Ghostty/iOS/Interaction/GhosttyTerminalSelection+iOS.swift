@@ -92,7 +92,7 @@ extension GhosttyTerminalView {
         granularity: UITextGranularity,
         keepsDragAnchor: Bool
     ) {
-        stopMomentumScrolling()
+        stopTerminalScrolling()
         freeNativeSelectionDragAnchor()
         nativeSelectionLifecycle.prepare(restoreTerminalInput: isTerminalTextInputActive)
         nativeSelectionLifecycle.beginInteraction(restoreTerminalInput: isTerminalTextInputActive)

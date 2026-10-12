@@ -204,7 +204,6 @@ class GhosttyTerminalView: UIView {
 
     static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "app.vivy.vvterm", category: "GhosttyTerminal")
 
-    var isScrolling = false
     var isPinchingTerminalZoom = false
     var pinchReferenceScale: CGFloat = 1
     let zoomIndicatorView = TerminalZoomIndicatorView()
@@ -264,22 +263,8 @@ class GhosttyTerminalView: UIView {
         recognizer.delegate = self
         return recognizer
     }()
-    lazy var scrollRecognizer: UIPanGestureRecognizer = {
-        let recognizer = UIPanGestureRecognizer(
-            target: self,
-            action: #selector(handlePanGesture(_:))
-        )
-        recognizer.maximumNumberOfTouches = 1
-        recognizer.requiresExclusiveTouchType = false
-        recognizer.allowedTouchTypes = [
-            NSNumber(value: UITouch.TouchType.direct.rawValue),
-            NSNumber(value: UITouch.TouchType.indirectPointer.rawValue),
-        ]
-        if #available(iOS 13.4, *) {
-            recognizer.allowedScrollTypesMask = .all
-        }
-        return recognizer
-    }()
+    let terminalScrollView = TerminalScrollView(frame: .zero)
+    var scrollRecognizer: UIPanGestureRecognizer { terminalScrollView.panGestureRecognizer }
     private lazy var pointerHoverRecognizer: UIHoverGestureRecognizer = {
         UIHoverGestureRecognizer(target: self, action: #selector(handlePointerHover(_:)))
     }()
@@ -393,7 +378,12 @@ class GhosttyTerminalView: UIView {
         self.contentScaleFactor = max(UITraitCollection.current.displayScale, 1)
 
         setupSurface()
+        terminalScrollView.terminalOwner = self
+        terminalScrollView.frame = bounds
+        addSubview(terminalScrollView)
+        terminalScrollView.accessibilityElementsHidden = true
         addSubview(imeProxyTextView)
+        terminalScrollView.synchronize()
         zoomIndicatorView.isHidden = true
         zoomIndicatorView.alpha = 0
         zoomIndicatorView.translatesAutoresizingMaskIntoConstraints = false
@@ -409,7 +399,6 @@ class GhosttyTerminalView: UIView {
 
         // Setup gesture recognizers with delegate for simultaneous recognition
         directTouchTapRecognizer.delegate = self
-        scrollRecognizer.delegate = self
         pinchRecognizer.delegate = self
         directTouchTapRecognizer.require(toFail: nativeSelectionLongPressRecognizer)
         addGestureRecognizer(nativeSelectionLongPressRecognizer)
@@ -458,6 +447,7 @@ class GhosttyTerminalView: UIView {
     var acceptsTerminalInput = true {
         didSet {
             if !acceptsTerminalInput {
+                stopTerminalScrolling()
                 cancelTrackedHardwareInput()
             }
         }
@@ -479,8 +469,7 @@ class GhosttyTerminalView: UIView {
     var keyboardUITestSoftwareKeyboardFailure = KeyboardUITestSoftwareKeyboardFailure.none
     #endif
     var onWindowAttachmentChange: ((Bool) -> Void)?
-    /// Reports terminal touches; isFocusTap is true for the plain
-    /// tap-to-focus gesture, which also restores a user-hidden keyboard.
+    /// Reports terminal touches; isFocusTap marks a completed tap for text input.
     var onTerminalDirectTouch: ((_ isFocusTap: Bool) -> Void)?
     var onHardwareKeyboardAttachmentChange: (() -> Void)?
     var onKeyboardAccessoryHideRequested: (() -> Void)?
@@ -489,21 +478,9 @@ class GhosttyTerminalView: UIView {
 
     // MARK: - Scroll Gesture
 
-    /// Scroll speed multiplier for iOS touch scrolling
-    static let scrollMultiplier: Double = 1.5
     static let selectionAutoscrollEdgeInset: Double = 56
     static let selectionAutoscrollMaximumDelta: Double = 12
 
-    /// Momentum deceleration rate (0.0-1.0, higher = slower deceleration)
-    static let momentumDeceleration: Double = 0.92
-
-    /// Minimum velocity to trigger momentum scrolling
-    static let minimumMomentumVelocity: Double = 50.0
-
-    /// Display link for momentum animation
-    var momentumDisplayLink: CADisplayLink?
-    var momentumVelocity: CGPoint = .zero
-    var momentumPhase: Ghostty.Input.Momentum = .none
     var selectionAutoscrollDisplayLink: CADisplayLink?
     var selectionAutoscrollRemainder: Double = 0
     var selectionAutoscrollLocation: CGPoint?

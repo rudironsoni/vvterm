@@ -110,6 +110,7 @@ class TerminalKeyboardUITestCase: XCTestCase {
         simulatesCodexTUIResponse: Bool = false,
         simulatesTerminalMouseCapture: Bool = false,
         seedsTerminalSelectionFixture: Bool = false,
+        seedsTerminalScrollHistory: Bool = false,
         seedsTerminalPasteboard: Bool = false,
         simulatesDetachedLightAccessoryHost: Bool = false,
         simulatesStaleLightAccessoryCacheOnResume: Bool = false,
@@ -161,6 +162,9 @@ class TerminalKeyboardUITestCase: XCTestCase {
         }
         if seedsTerminalSelectionFixture {
             app.launchArguments.append("--vvterm-ui-test-terminal-selection-fixture")
+        }
+        if seedsTerminalScrollHistory {
+            app.launchArguments.append("--vvterm-ui-test-terminal-scroll-history")
         }
         if seedsTerminalPasteboard {
             app.launchArguments.append("--vvterm-ui-test-terminal-pasteboard")
@@ -508,6 +512,27 @@ class TerminalKeyboardUITestCase: XCTestCase {
         let diagnostics = app.staticTexts["vvterm.keyboardTest.diagnostics"]
         guard diagnostics.exists else { return "diagnostics=<missing>" }
         return "diagnostics=\(diagnostics.label)"
+    }
+
+    @MainActor
+    func terminalTouchCoordinate(in app: XCUIApplication, row: Double = 20.5) throws -> XCUICoordinate {
+        // UITextInput's XCTest frame can describe the text instead of the view.
+        // The left side also stays clear of this harness's control buttons.
+        let left = try requiredDiagnosticMetric("terminalScreenLeft", in: app)
+        let top = try requiredDiagnosticMetric("terminalScreenTop", in: app)
+        let height = try requiredDiagnosticMetric("linkCellHeight", in: app)
+        let visibleHeight = try requiredDiagnosticMetric("visibleTerminalHeight", in: app)
+        _ = try XCTUnwrap(height > 0 && visibleHeight > height && row >= 0 ? height : nil, "Invalid terminal touch geometry")
+        let scale = try terminalScreenScale(in: app)
+        let y = top + min(row * height, visibleHeight - height) * scale
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        return origin.withOffset(CGVector(dx: left + 20 * scale - origin.screenPoint.x, dy: y - origin.screenPoint.y))
+    }
+
+    func terminalScreenScale(in app: XCUIApplication) throws -> Double {
+        let screenHeight = try requiredDiagnosticMetric("terminalScreenHeight", in: app)
+        let height = try requiredDiagnosticMetric("terminalHeight", in: app)
+        return try XCTUnwrap(height > 0 && screenHeight > 0 ? screenHeight / height : nil)
     }
 
     func requiredDiagnosticMetric(

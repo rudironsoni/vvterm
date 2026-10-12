@@ -12,6 +12,7 @@ extension GhosttyTerminalView {
     override func layoutSubviews() {
         super.layoutSubviews()
         imeProxyTextView.frame = bounds
+        terminalScrollView.updateViewport(bounds)
         nativeFindOverlay.frame = bounds
         bringSubviewToFront(nativeFindOverlay)
         bringSubviewToFront(zoomIndicatorView)
@@ -28,6 +29,7 @@ extension GhosttyTerminalView {
 
         let isVisible = (window != nil)
         if !isVisible {
+            stopTerminalScrolling()
             cancelTrackedHardwareInput()
         }
         isPaused = !isVisible

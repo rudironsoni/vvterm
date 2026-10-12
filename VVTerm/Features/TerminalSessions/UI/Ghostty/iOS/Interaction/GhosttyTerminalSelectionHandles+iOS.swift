@@ -26,7 +26,7 @@ extension GhosttyTerminalView {
                   let anchor = ghostty_surface_selection_anchor_new_endpoint(surface, drag.handle == .start) else { return }
             nativeSelectionDragAnchor = anchor
             nativeSelectionHandleDrag = drag
-            stopMomentumScrolling()
+            stopTerminalScrolling()
             dismissEditMenuIfNeeded()
             nativeSelectionLifecycle.beginInteraction(restoreTerminalInput: isTerminalTextInputActive)
             moveNativeSelectionHandle(recognizer)

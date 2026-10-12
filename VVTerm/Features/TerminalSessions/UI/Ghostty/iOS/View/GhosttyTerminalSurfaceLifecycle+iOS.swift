@@ -49,7 +49,9 @@ extension GhosttyTerminalView {
         cancelClipboardConfirmations()
         cancelTrackedHardwareInput()
         isPaused = true
-        stopMomentumScrolling()
+        stopTerminalScrolling()
+        terminalScrollView.delegate = nil
+        terminalScrollView.terminalOwner = nil
         stopSelectionAutoscroll()
         zoomIndicatorHideWorkItem?.cancel()
         zoomIndicatorHideWorkItem = nil
@@ -146,6 +148,7 @@ extension GhosttyTerminalView {
         if preservingForegroundKeyboardGrid {
             preservesForegroundKeyboardGrid = true
         }
+        stopTerminalScrolling()
         isPaused = true
 
         if let surface = surface?.unsafeCValue {

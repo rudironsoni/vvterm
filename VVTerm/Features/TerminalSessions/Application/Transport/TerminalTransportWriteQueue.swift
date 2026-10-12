@@ -1,44 +1,56 @@
 import Foundation
 
-/// Preserves the order in which terminal input reaches an asynchronous
-/// transport, even when an individual write suspends.
+/// Preserves terminal input order and combines pending bytes for the same shell.
 @MainActor
 final class TerminalTransportWriteQueue {
-    private struct Entry {
-        let task: Task<Void, Never>
+    private struct PendingWrite {
+        let routeID: UUID
+        var data: Data
+        let operation: @MainActor @Sendable (Data) async -> Void
     }
 
-    private var entries: [UUID: Entry] = [:]
-    private var tail: Task<Void, Never>?
+    private var pendingWrites: [PendingWrite] = []
+    private var writerTask: Task<Void, Never>?
 
-    func enqueue(_ operation: @escaping @MainActor @Sendable () async -> Void) {
-        let id = UUID()
-        let previousWrite = tail
-        let task = Task(priority: .userInitiated) { [weak self] in
-            await previousWrite?.value
-            guard !Task.isCancelled,
-                  self?.entries[id] != nil else { return }
-            await operation()
-            self?.finish(id)
+    func enqueue(
+        _ data: Data,
+        routeID: UUID,
+        operation: @escaping @MainActor @Sendable (Data) async -> Void
+    ) {
+        guard !data.isEmpty else { return }
+        // Limit combined writes to 64 KiB. Larger existing input (such as a
+        // paste) stays in its own write. Subtraction avoids count overflow.
+        let maximumCombinedBytes = 64 * 1024
+        if let last = pendingWrites.indices.last,
+           pendingWrites[last].routeID == routeID,
+           data.count <= maximumCombinedBytes,
+           pendingWrites[last].data.count <= maximumCombinedBytes - data.count {
+            pendingWrites[last].data.append(data)
+        } else {
+            pendingWrites.append(PendingWrite(routeID: routeID, data: data, operation: operation))
         }
-        entries[id] = Entry(task: task)
-        tail = task
+        guard writerTask == nil else { return }
+        writerTask = Task(priority: .userInitiated) { [weak self] in
+            await self?.drain()
+        }
     }
 
     func cancel() {
-        let tasks = entries.values.map(\.task)
-        entries.removeAll()
-        tail = nil
-        for task in tasks {
-            task.cancel()
-        }
+        writerTask?.cancel()
+        writerTask = nil
+        pendingWrites.removeAll()
     }
 
     func waitForPendingWrites() async {
-        await tail?.value
+        await writerTask?.value
     }
 
-    private func finish(_ id: UUID) {
-        entries.removeValue(forKey: id)
+    private func drain() async {
+        while !Task.isCancelled, !pendingWrites.isEmpty {
+            let write = pendingWrites.removeFirst()
+            await write.operation(write.data)
+        }
+        // A cancelled writer can finish after a replacement has started.
+        if !Task.isCancelled { writerTask = nil }
     }
 }

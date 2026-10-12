@@ -635,9 +635,14 @@ extension GhosttyRuntime {
                 width: Double(width) / scale,
                 height: Double(height) / scale
             )
+            terminalView.terminalScrollView.synchronize()
             #endif
 
         case .scrollbar(let scrollbar):
+            #if os(iOS)
+            terminalView?.scrollbar = scrollbar
+            terminalView?.terminalScrollView.synchronize()
+            #endif
             NotificationCenter.default.post(
                 name: .ghosttyDidUpdateScrollbar,
                 object: terminalView,

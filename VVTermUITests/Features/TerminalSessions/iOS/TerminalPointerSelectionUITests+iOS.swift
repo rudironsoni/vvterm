@@ -15,7 +15,7 @@ final class TerminalPointerSelectionUITests: TerminalKeyboardUITestCase {
         )
         assertMouseClickCountsRemain(presses: 0, releases: 0, in: app)
 
-        terminal.tap()
+        try terminalTouchCoordinate(in: app).tap()
         waitForMouseClickCounts(presses: 1, releases: 1, in: app)
         wait(
             for: diagnostics,
@@ -37,8 +37,8 @@ final class TerminalPointerSelectionUITests: TerminalKeyboardUITestCase {
             diagnostics: diagnosticsText(in: app)
         )
 
-        let dragStart = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
-        let dragEnd = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        let dragStart = try terminalTouchCoordinate(in: app)
+        let dragEnd = try terminalTouchCoordinate(in: app, row: 6.5)
         dragStart.press(forDuration: 0.05, thenDragTo: dragEnd)
         waitForDiagnosticMetrics(in: app) { metrics in
             (metrics["mouseScrollReports"] ?? 0) > 0
@@ -50,27 +50,26 @@ final class TerminalPointerSelectionUITests: TerminalKeyboardUITestCase {
             gestureSurface.waitForExistence(timeout: 5),
             diagnosticsText(in: app)
         )
-        gestureSurface.pinch(withScale: 0.8, velocity: -1)
+        gestureSurface.pinch(withScale: 0.5, velocity: -1)
         waitForDiagnosticMetrics(in: app) { metrics in
             (metrics["zoomActions"] ?? 0) > 0
         }
         assertMouseClickCountsRemain(presses: 1, releases: 1, in: app)
 
-        terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 0.4)
+        try terminalTouchCoordinate(in: app).press(forDuration: 0.4)
         waitForDiagnosticMetrics(in: app) { metrics in
             (metrics["nativeSelectionLength"] ?? 0) > 0
         }
         assertMouseClickCountsRemain(presses: 1, releases: 1, in: app)
 
-        terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.15)).tap()
+        try terminalTouchCoordinate(in: app, row: 6.5).tap()
         waitForDiagnosticMetrics(in: app) { metrics in
             (metrics["nativeSelectionLength"] ?? 0) == 0
         }
         assertMouseClickCountsRemain(presses: 1, releases: 1, in: app)
-        terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.15)).tap()
+        try terminalTouchCoordinate(in: app, row: 6.5).tap()
         waitForMouseClickCounts(presses: 2, releases: 2, in: app)
-        terminal.tap()
+        try terminalTouchCoordinate(in: app).tap()
         waitForMouseClickCounts(presses: 3, releases: 3, in: app)
     }
 
@@ -90,14 +89,14 @@ final class TerminalPointerSelectionUITests: TerminalKeyboardUITestCase {
             diagnostics: diagnosticsText(in: app)
         )
 
-        terminal.tap()
+        try terminalTouchCoordinate(in: app).tap()
         waitForMouseClickCounts(presses: 1, releases: 1, in: app)
         app.buttons["vvterm.keyboardTest.showKeyboard"].tap()
         app.buttons["vvterm.keyboardTest.geometry.docked"].tap()
         assertKeyboardSessionAndAccessoryVisible(in: app)
 
-        let dragStart = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
-        let dragEnd = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        let dragStart = try terminalTouchCoordinate(in: app)
+        let dragEnd = try terminalTouchCoordinate(in: app, row: 6.5)
         dragStart.press(forDuration: 0.05, thenDragTo: dragEnd)
         waitForDiagnosticMetrics(in: app) { metrics in
             (metrics["mouseScrollReports"] ?? 0) > 0

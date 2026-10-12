@@ -122,7 +122,7 @@ final class TerminalTransportCoordinator {
         let queue = lifetime.writeQueue(for: paneId)
         let registry = registry
         let logger = logger
-        queue.enqueue { [weak registry] in
+        queue.enqueue(data, routeID: route.shellId) { [weak registry] data in
             guard registry?.ownsShell(
                 client: route.client,
                 shellId: route.shellId,
