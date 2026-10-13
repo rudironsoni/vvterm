@@ -5,6 +5,9 @@ import UniformTypeIdentifiers
 
 struct TerminalAttachmentPicker: View {
     @ObservedObject var composer: TerminalComposerStore
+    @ObservedObject var keyboard: TerminalKeyboardCoordinator
+    let paneId: UUID
+    let isActive: Bool
     let onPasteText: (String) -> Void
 
     var body: some View {
@@ -55,6 +58,14 @@ struct TerminalAttachmentPicker: View {
             }
             .preference(key: TerminalRouteModalPresentationPreferenceKey.self,
                         value: composer.isAttachmentPickerPresented)
+            .onChange(of: composer.isAttachmentPickerPresented) { _ in resumeSubmission() }
+            .onChange(of: keyboard.canSubmitComposedInput(for: paneId)) { _ in resumeSubmission() }
+            .onChange(of: composer.operation == .waitingForInput) { _ in resumeSubmission() }
+            .onChange(of: isActive) { _ in resumeSubmission() }
+    }
+
+    private func resumeSubmission() {
+        composer.reconcileAttachmentSubmission(isPaneActive: isActive)
     }
 
     private var libraryOrFilesPresented: Binding<Bool> {

@@ -218,6 +218,29 @@ final class TerminalComposerUITests: XCTestCase {
     }
 
     @MainActor
+    func testFastPhotoUploadInNormalModeInsertsAfterNativeDismissal() {
+        let app = launch(arguments: ["--composer-fast-native-attachment", "-terminalInputMode", "direct"])
+        defer { app.terminate() }
+        app.buttons["composer.test.photos"].tap()
+        let photos = app.navigationBars["Photos"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 15), app.debugDescription)
+        let photo = app.images.matching(NSPredicate(format: "label BEGINSWITH 'Photo,'")).firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 15), "Requires a simulator photo fixture. \(app.debugDescription)")
+        photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.buttons["Add"].tap()
+        XCTAssertTrue(photos.waitForNonExistence(timeout: 8))
+        let sent = app.staticTexts["composer.test.sent"]
+        expectation(for: NSPredicate(format: "label BEGINSWITH '/tmp/'"), evaluatedWith: sent)
+        waitForExpectations(timeout: 8)
+        let expectedPath = sent.label
+        let bytes = app.staticTexts["composer.test.bytes"]
+        expectation(for: NSPredicate(format: "label == %@", expectedPath), evaluatedWith: bytes)
+        waitForExpectations(timeout: 5)
+        XCTAssertFalse(app.staticTexts["vvterm.composer.error"].exists)
+        XCTAssertFalse(expectedPath.contains("<CR>"))
+    }
+
+    @MainActor
     func testDisabledVoiceInputHidesMicrophoneAndRestoresTyping() {
         let app = launch()
         app.buttons["vvterm.composer.toggle"].tap()

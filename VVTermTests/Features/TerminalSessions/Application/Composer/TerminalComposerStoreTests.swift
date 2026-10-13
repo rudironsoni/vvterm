@@ -395,6 +395,100 @@ final class TerminalComposerStoreTests: XCTestCase {
         XCTAssertEqual(store.draft, "saved chat draft")
     }
 
+    func testFastNativePickerUploadRetainsAttachmentUntilDismissal() async {
+        for source in [TerminalComposerStore.AttachmentSource.camera, .photos, .files] {
+            let fixture = Fixture()
+            fixture.rejectSubmit = true
+            let store = fixture.store()
+            let file = payload("file.txt")
+            store.attachmentSource = source
+            store.attachmentPickerWillPresent()
+            store.attachmentSource = nil
+            store.load { [file] }
+            for _ in 0..<200 where fixture.uploaded.isEmpty { await Task.yield() }
+            for _ in 0..<20 { await Task.yield() }
+
+            XCTAssertEqual(fixture.uploaded, ["file.txt"])
+            XCTAssertTrue(fixture.sent.isEmpty)
+            XCTAssertTrue(fixture.removed.isEmpty)
+            XCTAssertEqual(store.attachments.map(\.id), [file.id])
+            if case .failed = store.operation { XCTFail("Picker dismissal must not reject a fast upload") }
+            store.tearDown()
+        }
+    }
+
+    func testPickerDismissalWaitsForInputAndInsertsOnceWithoutUploadingAgain() async {
+        for source in [TerminalComposerStore.AttachmentSource.camera, .photos, .files] {
+            let fixture = Fixture()
+            fixture.rejectSubmit = true
+            let store = fixture.store()
+            let file = payload("file.txt")
+            store.attachmentSource = source
+            store.attachmentPickerWillPresent()
+            store.attachmentSource = nil
+            store.load { [file] }
+            await waitForInput(store)
+
+            store.attachmentPickerDidDismiss()
+            store.reconcileAttachmentSubmission(isPaneActive: true)
+            XCTAssertEqual(store.operation, .waitingForInput)
+            XCTAssertTrue(fixture.sent.isEmpty)
+            XCTAssertTrue(fixture.removed.isEmpty)
+
+            fixture.rejectSubmit = false
+            store.reconcileAttachmentSubmission(isPaneActive: true)
+            store.reconcileAttachmentSubmission(isPaneActive: true)
+            await finish(store)
+            XCTAssertEqual(fixture.uploaded, ["file.txt"])
+            XCTAssertEqual(fixture.sent, ["/tmp/file.txt"])
+            XCTAssertEqual(fixture.sentActions, [.insert])
+            XCTAssertTrue(store.attachments.isEmpty)
+            XCTAssertTrue(fixture.removed.isEmpty)
+        }
+    }
+
+    func testLeavingPaneOrChangingModeCancelsWaitingAttachmentInsert() async {
+        for changesMode in [false, true] {
+            let fixture = Fixture()
+            fixture.rejectSubmit = true
+            let store = fixture.store()
+            let file = payload("file.txt")
+            store.attachmentSource = .files
+            store.attachmentPickerWillPresent()
+            store.attachmentSource = nil
+            store.load { [file] }
+            await waitForInput(store)
+
+            if changesMode { store.setMode(.chat) }
+            else { store.reconcileAttachmentSubmission(isPaneActive: false) }
+            store.attachmentPickerDidDismiss()
+            fixture.rejectSubmit = false
+            store.reconcileAttachmentSubmission(isPaneActive: true)
+            for _ in 0..<200 where fixture.removed.isEmpty { await Task.yield() }
+            XCTAssertTrue(fixture.sent.isEmpty)
+            XCTAssertEqual(fixture.removed, ["/tmp/file.txt"])
+            XCTAssertFalse(store.isBusy)
+        }
+    }
+
+    func testChatPickerUploadKeepsDraftWithoutWaitingForDirectInput() async {
+        let fixture = Fixture()
+        fixture.rejectSubmit = true
+        let store = fixture.store()
+        store.setMode(.chat)
+        store.draft = "keep draft"
+        store.attachmentSource = .photos
+        store.attachmentPickerWillPresent()
+        store.attachmentSource = nil
+        let file = payload("file.txt")
+        await finish(store) { store.load { [file] } }
+        XCTAssertEqual(fixture.uploaded, ["file.txt"])
+        XCTAssertEqual(store.attachments.map(\.id), [file.id])
+        XCTAssertEqual(store.draft, "keep draft")
+        XCTAssertTrue(fixture.sent.isEmpty)
+        store.tearDown()
+    }
+
     func testCancelDuringUploadNeverSubmitsLateResultAndCleansItUp() async throws {
         let began = expectation(description: "upload started")
         let cleaned = expectation(description: "upload cleaned")
@@ -560,6 +654,15 @@ final class TerminalComposerStoreTests: XCTestCase {
         XCTAssertEqual(fixture.sent, ["/tmp/next.txt"])
     }
 
+    private func waitForInput(_ store: TerminalComposerStore) async {
+        let deadline = ContinuousClock.now + .seconds(3)
+        while store.operation != .waitingForInput && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(store.operation, .waitingForInput)
+        XCTAssertTrue(store.isBusy)
+    }
+
     private func finish(_ store: TerminalComposerStore, action: () -> Void = {}) async {
         action()
         let deadline = ContinuousClock.now + .seconds(3)
@@ -598,7 +701,7 @@ final class TerminalComposerStoreTests: XCTestCase {
                 if rejectSubmit { throw TerminalAttachmentError.unavailable }
                 sent.append(text)
                 sentActions.append(mode)
-            })
+            }, canSubmit: { [self] in !rejectSubmit })
         }
     }
 }

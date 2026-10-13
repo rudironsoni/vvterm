@@ -48,6 +48,13 @@ extension TerminalComposerStore {
                 terminal.sendText(text)
                 #endif
             },
+            canSubmit: { [weak tabManager] in
+                #if os(iOS)
+                tabManager?.keyboardCoordinator.canSubmitComposedInput(for: paneId) == true
+                #else
+                true
+                #endif
+            },
             modeChanged: { [weak tabManager] _ in
                 #if os(iOS)
                 tabManager?.keyboardCoordinator.composerModeDidChange(for: paneId)

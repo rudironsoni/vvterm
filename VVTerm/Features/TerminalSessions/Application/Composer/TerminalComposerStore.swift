@@ -8,6 +8,7 @@ final class TerminalComposerStore: ObservableObject {
         case idle
         case loading
         case uploading(id: UUID?, filename: String)
+        case waitingForInput
         case failed(String)
     }
 
@@ -33,6 +34,7 @@ final class TerminalComposerStore: ObservableObject {
 
     private let resolveRoute: @MainActor () async throws -> TerminalAttachmentRoute
     private let submit: @MainActor (String, TerminalComposerSendAction) throws -> Void
+    private let canSubmit: @MainActor () -> Bool
     private let modeChanged: @MainActor (TerminalInputMode) -> Void
     private var task: Task<Void, Never>?
     private var taskID: UUID?
@@ -44,15 +46,17 @@ final class TerminalComposerStore: ObservableObject {
 
     init(resolveRoute: @escaping @MainActor () async throws -> TerminalAttachmentRoute,
          submit: @escaping @MainActor (String, TerminalComposerSendAction) throws -> Void,
+         canSubmit: @escaping @MainActor () -> Bool = { true },
          modeChanged: @escaping @MainActor (TerminalInputMode) -> Void = { _ in }) {
         self.submit = submit
+        self.canSubmit = canSubmit
         self.resolveRoute = resolveRoute
         self.modeChanged = modeChanged
     }
 
     var isBusy: Bool {
         switch operation {
-        case .loading, .uploading: true
+        case .loading, .uploading, .waitingForInput: true
         case .idle, .failed: false
         }
     }
@@ -69,6 +73,16 @@ final class TerminalComposerStore: ObservableObject {
 
     func attachmentPickerDidDismiss() {
         presentedAttachmentSource = nil
+    }
+
+    func reconcileAttachmentSubmission(isPaneActive: Bool) {
+        guard operation == .waitingForInput else { return }
+        guard isPaneActive else {
+            discardAttachments()
+            return
+        }
+        guard !isAttachmentPickerPresented, canSubmit() else { return }
+        prepare(action: .insert, waitsForPickerInput: true)
     }
 
     func isUploading(_ attachment: TerminalAttachmentPayload) -> Bool {
@@ -111,6 +125,7 @@ final class TerminalComposerStore: ObservableObject {
 
     func load(_ loader: @escaping @Sendable () async throws -> [TerminalAttachmentPayload]) {
         guard !isBusy else { return }
+        let waitsForPickerInput = isAttachmentPickerPresented
         let id = UUID()
         taskID = id
         operation = .loading
@@ -123,7 +138,8 @@ final class TerminalComposerStore: ObservableObject {
                 self.attachments.append(contentsOf: payloads)
                 self.task = nil
                 self.taskID = nil
-                self.prepare(action: self.mode == .direct ? .insert : nil)
+                self.prepare(action: self.mode == .direct ? .insert : nil,
+                             waitsForPickerInput: waitsForPickerInput)
             } catch {
                 guard let self, self.taskID == id else { return }
                 self.operation = .failed(error.localizedDescription)
@@ -163,7 +179,7 @@ final class TerminalComposerStore: ObservableObject {
         ([text].filter { !$0.isEmpty } + pathTokens).joined(separator: " ")
     }
 
-    private func prepare(action: TerminalComposerSendAction?) {
+    private func prepare(action: TerminalComposerSendAction?, waitsForPickerInput: Bool = false) {
         let inputMode = mode
         let insertsDraft = action?.insertsDraft ?? true
         let text = inputMode == .chat && insertsDraft ? draft : ""
@@ -207,6 +223,15 @@ final class TerminalComposerStore: ObservableObject {
                 guard let self, self.taskID == id else { return }
                 if !payloads.isEmpty, self.prepared?.route.isCurrent() != true {
                     throw TerminalAttachmentError.unavailable
+                }
+                if inputMode == .direct, waitsForPickerInput,
+                   self.isAttachmentPickerPresented || !self.canSubmit() {
+                    // Import provider files while they are available. Keep the
+                    // completed upload until native dismissal restores input.
+                    self.operation = .waitingForInput
+                    self.task = nil
+                    self.taskID = nil
+                    return
                 }
                 if let action {
                     let sentPayloads = payloads.filter { payload in self.attachments.contains { $0.id == payload.id } }

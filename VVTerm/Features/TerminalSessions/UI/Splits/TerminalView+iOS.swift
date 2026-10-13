@@ -103,7 +103,8 @@ struct RemoteTerminalPaneWrapper: View {
             composer.setMode(mode)
         }
         .background {
-            TerminalAttachmentPicker(composer: composer, onPasteText: { text in
+            TerminalAttachmentPicker(composer: composer, keyboard: tabManager.keyboardCoordinator,
+                                     paneId: paneId, isActive: isActive, onPasteText: { text in
                 guard tabManager.keyboardCoordinator.canSubmitComposedInput(for: paneId) else { return }
                 if composer.mode == .chat {
                     tabManager.keyboardCoordinator.insertComposerText(text, for: paneId)

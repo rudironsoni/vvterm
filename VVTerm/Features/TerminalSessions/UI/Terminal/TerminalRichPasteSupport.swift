@@ -256,7 +256,7 @@ final class TerminalRichPasteRuntime: TerminalRichPasteContext {
                     uiModel?.setProgress(String(localized: "Loading Files"))
                 case .uploading(_, let filename):
                     uiModel?.setProgress(String(format: String(localized: "Uploading %@"), filename))
-                case .idle:
+                case .idle, .waitingForInput:
                     uiModel?.setProgress(nil)
                 case .failed(let message):
                     uiModel?.setProgress(nil)

@@ -38,7 +38,9 @@ final class TerminalComposerUITestModel: ObservableObject {
             return TerminalAttachmentRoute(upload: { [weak self] attachment in
                 if let self, self.pausesUploads {
                     await withCheckedContinuation { self.resumeUpload = $0 }
-                } else { try await Task.sleep(for: .milliseconds(100)) }
+                } else if !Foundation.ProcessInfo.processInfo.arguments.contains("--composer-fast-native-attachment") {
+                    try await Task.sleep(for: .milliseconds(100))
+                }
                 if self?.failUpload == true { throw TerminalAttachmentError.unreadable }
                 return RemoteClipboardUpload(remotePath: "/tmp/\(attachment.suggestedFilename)",
                                              pastedPathToken: "/tmp/\(attachment.suggestedFilename)",
@@ -51,6 +53,9 @@ final class TerminalComposerUITestModel: ObservableObject {
             }
             try terminal.sendComposedText(text, action: action)
             self.sent = text
+        }, canSubmit: { [weak self] in
+            guard let self else { return false }
+            return self.keyboard.canSubmitComposedInput(for: self.paneID)
         }, modeChanged: { [weak self] _ in
             guard let self else { return }
             self.keyboard.composerModeDidChange(for: self.paneID)
@@ -186,6 +191,10 @@ private struct TerminalComposerUITestContent: View {
         VStack(spacing: 4) {
             HStack {
                 TerminalComposerMenuButton(composer: composer)
+                if Foundation.ProcessInfo.processInfo.arguments.contains("--composer-fast-native-attachment") {
+                    Button("Photos") { composer.attachmentSource = .photos }
+                        .accessibilityIdentifier("composer.test.photos")
+                }
                 Button("Add fixtures") { model.addFixtures() }.accessibilityIdentifier("composer.test.add")
                 Button("Settings") {
                     model.keyboard.deactivateInputImmediately(reason: .routeModal)
@@ -332,7 +341,8 @@ private struct TerminalComposerUITestContent: View {
             }
         }
         .background {
-            TerminalAttachmentPicker(composer: composer, onPasteText: { text in
+            TerminalAttachmentPicker(composer: composer, keyboard: model.keyboard,
+                                     paneId: model.paneID, isActive: model.connected, onPasteText: { text in
                 if composer.mode == .chat {
                     model.keyboard.insertComposerText(text, for: model.paneID)
                 } else { model.terminal?.pasteTextFromClipboard() }
