@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.3.1
+
+### Fixed
+
+- Fixed Photos freezing when opened from the iOS terminal accessory bar or Chat Mode.
+- Kept chat drafts and restored keyboard input after closing Photos.
+
 ## 3.3.0
 
 ### Changed
