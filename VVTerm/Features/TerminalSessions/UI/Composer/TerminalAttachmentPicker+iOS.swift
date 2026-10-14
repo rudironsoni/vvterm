@@ -1,7 +1,6 @@
 #if os(iOS)
-import PhotosUI
 import SwiftUI
-import UniformTypeIdentifiers
+import UIKit
 
 struct TerminalAttachmentPicker: View {
     @ObservedObject var composer: TerminalComposerStore
@@ -18,27 +17,30 @@ struct TerminalAttachmentPicker: View {
                     if let result { composer.load { [try result.get()] } }
                 }
             }
-            .sheet(isPresented: libraryOrFilesPresented, onDismiss: composer.attachmentPickerDidDismiss) {
-                switch composer.attachmentSource ?? composer.presentedAttachmentSource {
-                case .photos:
-                    TerminalPhotoLibraryPicker { providers in
-                        composer.attachmentSource = nil
-                        guard !providers.isEmpty else { return }
-                        composer.load { @MainActor in
-                            try await TerminalPhotoLibraryAttachment.payloads(from: providers)
-                        }
+            .background {
+                TerminalPhotoLibraryPicker(
+                    isPresented: isPresented(.photos),
+                    willPresent: {
+                        composer.attachmentPickerWillPresent()
+                        keyboard.deactivateInputImmediately(reason: .routeModal)
+                    },
+                    onDismiss: composer.attachmentPickerDidDismiss
+                ) { providers in
+                    composer.attachmentSource = nil
+                    guard !providers.isEmpty else { return }
+                    composer.load { @MainActor in
+                        try await TerminalPhotoLibraryAttachment.payloads(from: providers)
                     }
-                    .ignoresSafeArea()
-                case .files:
-                    TerminalFilePicker { urls in
-                        composer.attachmentSource = nil
-                        guard let urls else { return }
-                        composer.load { try await TerminalAttachmentLoader.files(urls) }
-                    }
-                    .ignoresSafeArea()
-                default:
-                    EmptyView()
                 }
+                .frame(width: 0, height: 0)
+            }
+            .sheet(isPresented: isPresented(.files), onDismiss: composer.attachmentPickerDidDismiss) {
+                TerminalFilePicker { urls in
+                    composer.attachmentSource = nil
+                    guard let urls else { return }
+                    composer.load { try await TerminalAttachmentLoader.files(urls) }
+                }
+                .ignoresSafeArea()
             }
             .onChange(of: composer.attachmentSource) { source in
                 composer.attachmentPickerWillPresent()
@@ -68,23 +70,12 @@ struct TerminalAttachmentPicker: View {
         composer.reconcileAttachmentSubmission(isPaneActive: isActive)
     }
 
-    private var libraryOrFilesPresented: Binding<Bool> {
-        Binding(get: { composer.attachmentSource == .photos || composer.attachmentSource == .files },
-                set: { presented in
-            if !presented, composer.attachmentSource == .photos || composer.attachmentSource == .files {
-                composer.attachmentSource = nil
-            }
-        })
-    }
-
     private func isPresented(_ source: TerminalComposerStore.AttachmentSource) -> Binding<Bool> {
         Binding(get: { composer.attachmentSource == source }, set: { presented in
             if presented { composer.attachmentSource = source }
             else if composer.attachmentSource == source { composer.attachmentSource = nil }
         })
     }
-
-
 }
 
 extension TerminalComposerStore.AttachmentSource {

@@ -694,7 +694,11 @@ final class TerminalKeyboardCoordinator: ObservableObject {
     func composerInputAvailabilityDidChange() { markDirty(reason: "composerAvailability") }
 
     func isComposerVisible(for paneId: UUID) -> Bool {
-        activePaneId == paneId && activeInputMode == .chat && viewActive
+        // A route modal releases input ownership without ending the editor's
+        // lifetime. Keep that pane mounted until its input can return.
+        let retainsEditor = activePaneId == nil && inputDeactivationRecoveryState.isPending(for: paneId)
+        return (activePaneId == paneId || retainsEditor)
+            && inputModeProvider?(paneId) == .chat && (viewActive || retainsEditor)
             && paneInputEligibleById[paneId] == true && !findNavigatorState.isActive
     }
 

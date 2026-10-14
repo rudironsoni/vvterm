@@ -8,6 +8,40 @@ extension TerminalKeyboardCoordinatorTests {
     @Suite(.serialized)
     struct Composer {
         @Test @MainActor
+        func routeModalRetainsComposerUntilInputReturns() async {
+            let pane = UUID(), other = UUID()
+            let terminal = TerminalKeyboardInputSessionSpy()
+            let composer = ComposerInputSpy()
+            let coordinator = makeTerminalKeyboardCoordinator()
+            coordinator.terminalProvider = { _ in terminal }
+            coordinator.inputModeProvider = { _ in .chat }
+            coordinator.setActivePane(pane)
+            coordinator.setViewActive(true)
+            coordinator.setWindowAttached(true, for: pane)
+            coordinator.setPaneInputEligible(true, for: pane)
+            coordinator.registerComposerInput(composer, for: pane)
+            await drainMainQueue()
+
+            coordinator.deactivateInputImmediately(reason: .routeModal)
+            await drainMainQueue()
+            #expect(!composer.active)
+            #expect(coordinator.isComposerVisible(for: pane))
+
+            coordinator.setActivePane(pane)
+            coordinator.setViewActive(true)
+            coordinator.activeTerminalContentDidBecomeVisible(for: pane)
+            await drainMainQueue()
+            #expect(composer.active)
+            #expect(coordinator.isComposerVisible(for: pane))
+
+            coordinator.deactivateInputImmediately(reason: .routeModal)
+            coordinator.setActivePane(other)
+            coordinator.setViewActive(true)
+            await drainMainQueue()
+            #expect(!coordinator.isComposerVisible(for: pane))
+        }
+
+        @Test @MainActor
         func pasteOnlyEditsTheEligibleChatPane() async {
             let pane = UUID(), other = UUID()
             let terminal = TerminalKeyboardInputSessionSpy()

@@ -23,7 +23,8 @@ class TerminalReconnectUITestCase: XCTestCase {
         keyboardOptions: Int = 0,
         repeatsKeyboardUpdates: Bool = false,
         repeatsKeyboardStateUpdates: Bool = false,
-        themeName: String? = nil
+        themeName: String? = nil,
+        serverNavigation: Bool = false
     ) -> (XCUIApplication, XCUIElement) {
         let app = XCUIApplication()
         app.terminate()
@@ -45,6 +46,7 @@ class TerminalReconnectUITestCase: XCTestCase {
             "-security.lockOnBackground", "NO",
         ]
         if tabSwitching { app.launchArguments.append("--vvterm-ui-test-tab-switch") }
+        if serverNavigation { app.launchArguments.append("--vvterm-ui-test-server-navigation") }
         if splitPaneFocus { app.launchArguments.append("--vvterm-ui-test-split-pane-focus") }
         if repeatsKeyboardUpdates {
             app.launchArguments.append("--vvterm-ui-test-repeat-keyboard-updates")
@@ -76,6 +78,11 @@ class TerminalReconnectUITestCase: XCTestCase {
             diagnostics.waitForExistence(timeout: 45),
             "Production SSH harness did not mount"
         )
+        if serverNavigation {
+            let server = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "DEV-199 Loopback")).firstMatch
+            XCTAssertTrue(server.waitForExistence(timeout: 10), app.debugDescription)
+            server.tap()
+        }
         wait(
             for: diagnostics,
             containing: "setup=ready state=connected",
